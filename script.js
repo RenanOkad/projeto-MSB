@@ -265,6 +265,9 @@ async function getJSessionId() {
         await loginButton.click();
         logger.info("Botão de login clicado!");
 
+       // Dentro da função getJSessionId, substitua a seção de captura do JSESSIONID por:
+
+        // Após o clique no botão de login e navegação para GAME_URL
         await delay(10000);
 
         // Acessa a página do jogo
@@ -273,27 +276,36 @@ async function getJSessionId() {
         await delay(15000);
         logger.info(`URL atual após navegação para jogo: ${page.url()}`);
 
-        // Captura o JSESSIONID
-        page.on('request', (request) => {
-            logger.info(`Requisição: ${request.url()}`);
-            const url = request.url();
-            if ((url.toLocaleLowerCase().includes('games.pragmaticplaylive') || games.pragmaticplaylive('client.pragmaticplaylive')) && url.toLowerCase().includes('jsessionid')) {
-                const match = url.match(/JSESSIONID=([^&]+)/i);
-                if (match) {
-                    sessionId = match[1];
-                    logger.info(`JSESSIONID capturado: ${sessionId}`);
-                }
-            }
-        });
+        // Captura o JSESSIONID usando waitForResponse com timeout
+        let sessionId = null;
+        const timeoutMs = 30000; // Timeout de 30 segundos
 
-        await new Promise(resolve => {
-            const checkSessionId = setInterval(() => {
-                if (sessionId) {
-                    clearInterval(checkSessionId);
-                    resolve();
-                }
-            }, 1000);
-        });
+        try {
+            const response = await page.waitForResponse(
+                (response) =>
+                    (response.url().toLowerCase().includes('games.pragmaticplaylive.net') ||
+                    response.url().toLowerCase().includes('client.pragmaticplaylive')) &&
+                    response.url().toLowerCase().includes('jsessionid') &&
+                    response.status() === 200,
+                { timeout: timeoutMs }
+            );
+
+            const url = response.url();
+            logger.info(`Requisição capturada: ${url}`);
+            const match = url.match(/JSESSIONID=([^&]+)/i);
+            if (match) {
+                sessionId = match[1];
+                logger.info(`JSESSIONID capturado: ${sessionId}`);
+            } else {
+                logger.warn("JSESSIONID não encontrado na URL da resposta.");
+            }
+        } catch (error) {
+            if (error.name === 'TimeoutError') {
+                logger.error(`Timeout de ${timeoutMs / 1000} segundos atingido ao esperar por JSESSIONID.`);
+            } else {
+                logger.error(`Erro ao capturar JSESSIONID: ${error.message}`);
+            }
+        }
 
         if (!sessionId) {
             logger.error("JSESSIONID não capturado.");
