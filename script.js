@@ -18,7 +18,7 @@ const INITIAL_URLS = [
 ];
 const GAME_URL = "https://www.seguro.bet.br/cassino/slots/320/320/pragmatic-play-live/56977-420031975-treasure-island";
 const JSON_URL = "https://games.pragmaticplaylive.net/api/ui/stats?JSESSIONID={}&tableId=a10megasicbaca10&noOfGames=500";
-const SESSION_REFRESH_INTERVAL = 720 * 1000; // 12 minutos
+const SESSION_REFRESH_INTERVAL = 1500 * 1000; // 12 minutos
 const ERROR_MESSAGE_COOLDOWN = 300 * 1000; // 5 minutos
 
 // Configuração de logging com console e arquivo
@@ -277,7 +277,7 @@ async function getJSessionId() {
         page.on('request', (request) => {
             logger.info(`Requisição: ${request.url()}`);
             const url = request.url();
-            if (url.toLowerCase().includes('jsessionid')) {
+            if ((url.toLocaleLowerCase().includes('games.pragmaticplaylive') || games.pragmaticplaylive('client.pragmaticplaylive')) && url.toLowerCase().includes('jsessionid')) {
                 const match = url.match(/JSESSIONID=([^&]+)/i);
                 if (match) {
                     sessionId = match[1];
@@ -510,7 +510,7 @@ async function mainLoop() {
 
                 // Se não houver novo sinal detectado, mas ainda estamos em um ciclo de Gale
                 if (!newSignalDetected && galeLevel > 0 && !galeMessageSent) {
-                    const galeMessage = `Realizar Gale ${galeLevel} na cor ${currentBet}`;
+                    const galeMessage = `Realizar Gale ${galeLevel} em ${currentBet}`;
                     await sendSignalDefault(bot, galeMessage);
                     logger.info(`Enviada mensagem de Gale (sem novo padrão): ${galeMessage}`);
                     galeMessageSent = true;
