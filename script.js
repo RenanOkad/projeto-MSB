@@ -7,7 +7,7 @@ const { exec } = require('child_process'); // Adicionado para gerenciar processo
 
 // Configurações básicas
 const TELEGRAM_TOKEN = "7353153409:AAFCy1qUjxzZSgT_XUoOScR1Rjl4URtfzk8"; // Token do bot do Telegram
-const CHANNEL_ID = "1750232012"; // ID ou nome do canal Telegram ID-Bot: 1750232012, ID Grupo: -1002223861805
+const CHANNEL_ID = "-1002223861805"; // ID ou nome do canal Telegram ID-Bot: 1750232012, ID Grupo: -1002223861805
 // Lista de URLs iniciais para tentar encontrar o botão de login
 const INITIAL_URLS = [
     "https://www.seguro.bet.br",
@@ -18,7 +18,7 @@ const INITIAL_URLS = [
 ];
 const GAME_URL = "https://www.seguro.bet.br/cassino/slots/320/320/pragmatic-play-live/56977-420031975-treasure-island";
 const JSON_URL = "https://games.pragmaticplaylive.net/api/ui/stats?JSESSIONID={}&tableId=a10megasicbaca10&noOfGames=500";
-const SESSION_REFRESH_INTERVAL = 1500 * 1000; // 12 minutos
+const SESSION_REFRESH_INTERVAL = 720 * 1000; // 12 minutos (usado como fallback, mas não será o gatilho principal)
 const ERROR_MESSAGE_COOLDOWN = 300 * 1000; // 5 minutos
 
 // Configuração de logging com console e arquivo
@@ -36,6 +36,7 @@ const logger = winston.createLogger({
 
 // Controle de mensagens de erro
 const lastErrorMessageTime = {};
+let isSystemInErrorState = false; // Flag para controlar o estado de erro e mensagens no Telegram
 
 function canSendErrorMessage(message) {
     const currentTime = Date.now();
@@ -161,12 +162,7 @@ async function getJSessionId() {
 
             const pageContent = await page.content();
             if (pageContent.includes('Error 1009') || pageContent.includes('The owner of this website has banned')) {
-                const errorMsg = "Erro 1009: Bloqueio geográfico detectado. Verifique o proxy.";
-                logger.error(errorMsg);
-                if (canSendErrorMessage(errorMsg)) {
-                    const bot = new TelegramBot(TELEGRAM_TOKEN);
-                    await bot.sendMessage(CHANNEL_ID, `⚠️ Alerta: ${errorMsg}`);
-                }
+                logger.error("Erro 1009: Bloqueio geográfico detectado. Verifique o proxy.");
                 return null;
             }
 
@@ -182,9 +178,8 @@ async function getJSessionId() {
 
         // Verifica se o botão foi encontrado em alguma das URLs
         if (!enterButton) {
-            const errorMsg = `Botão 'Entrar' não encontrado em nenhuma das URLs: ${INITIAL_URLS.join(', ')}`;
-            logger.error(errorMsg);
-            throw new Error(errorMsg);
+            logger.error(`Botão 'Entrar' não encontrado em nenhuma das URLs: ${INITIAL_URLS.join(', ')}`);
+            throw new Error("Botão 'Entrar' não encontrado.");
         }
 
         logger.info(`Botão 'Entrar' encontrado com sucesso em ${currentUrl}!`);
@@ -265,50 +260,41 @@ async function getJSessionId() {
         await loginButton.click();
         logger.info("Botão de login clicado!");
 
-       // Dentro da função getJSessionId, substitua a seção de captura do JSESSIONID por:
-
-        // Após o clique no botão de login e navegação para GAME_URL
-        await delay(10000);
+        await delay(5000);
 
         // Acessa a página do jogo
         logger.info(`Acessando ${GAME_URL}...`);
         await page.goto(GAME_URL, { waitUntil: 'networkidle', timeout: 90000 });
-        await delay(15000);
         logger.info(`URL atual após navegação para jogo: ${page.url()}`);
 
-        // Captura o JSESSIONID usando waitForResponse com timeout
+        // Captura o JSESSIONID usando requestfinished com flag de parada
         let sessionId = null;
-        const timeoutMs = 30000; // Timeout de 30 segundos
+        let isSessionIdCaptured = false;
 
-        try {
-            const response = await page.waitForResponse(
-                (response) =>
-                    (response.url().toLowerCase().includes('games.pragmaticplaylive.net') ||
-                    response.url().toLowerCase().includes('client.pragmaticplaylive')) &&
-                    response.url().toLowerCase().includes('jsessionid') &&
-                    response.status() === 200,
-                { timeout: timeoutMs }
-            );
+        page.on('requestfinished', async (request) => {
+            if (isSessionIdCaptured) return; // Para o monitoramento após capturar
 
-            const url = response.url();
-            logger.info(`Requisição capturada: ${url}`);
-            const match = url.match(/JSESSIONID=([^&]+)/i);
-            if (match) {
-                sessionId = match[1];
-                logger.info(`JSESSIONID capturado: ${sessionId}`);
-            } else {
-                logger.warn("JSESSIONID não encontrado na URL da resposta.");
+            const url = request.url();
+            if ((url.toLowerCase().includes('games.pragmaticplaylive.net') || url.toLowerCase().includes('client.pragmaticplaylive')) && url.toLowerCase().includes('jsessionid')) {
+                logger.info(`Requisição capturada: ${request.url()}`);
+                const match = url.match(/JSESSIONID=([^&]+)/i);
+                if (match) {
+                    sessionId = match[1];
+                    logger.info(`JSESSIONID capturado: ${sessionId}`);
+                    isSessionIdCaptured = true;
+                }
             }
-        } catch (error) {
-            if (error.name === 'TimeoutError') {
-                logger.error(`Timeout de ${timeoutMs / 1000} segundos atingido ao esperar por JSESSIONID.`);
-            } else {
-                logger.error(`Erro ao capturar JSESSIONID: ${error.message}`);
-            }
+        });
+
+        // Aguarda até que o JSESSIONID seja capturado ou um tempo razoável
+        const maxWaitTime = 30000; // 30 segundos como limite seguro (ajustável)
+        const startTime = Date.now();
+        while (!sessionId && (Date.now() - startTime) < maxWaitTime) {
+            await delay(100); // Checa a cada 100ms
         }
 
         if (!sessionId) {
-            logger.error("JSESSIONID não capturado.");
+            logger.error("JSESSIONID não capturado dentro do tempo limite.");
             throw new Error("Falha ao capturar JSESSIONID.");
         }
 
@@ -332,7 +318,7 @@ async function getJSessionId() {
     }
 }
 
-// Função para acessar o JSON
+// Função para acessar o JSON com verificação de falha
 async function fetchGameHistory(sessionId) {
     try {
         const url = JSON_URL.replace("{}", sessionId);
@@ -340,7 +326,7 @@ async function fetchGameHistory(sessionId) {
         logger.info("Histórico de jogos obtido com sucesso.");
         return response.data;
     } catch (error) {
-        logger.error(`Erro ao acessar JSON: ${error.message}`);
+        logger.error(`Erro ao acessar JSON: ${error.message} (Status: ${error.response?.status})`);
         return null;
     }
 }
@@ -392,14 +378,12 @@ async function sendSignalDefault(bot, message) {
     }
 }
 
-async function sendErrorSignal(bot, message) {
-    if (canSendErrorMessage(message)) {
-        try {
-            await bot.sendMessage(CHANNEL_ID, `⚠️ Alerta: ${message}`);
-            logger.error(`Erro enviado ao Telegram: ${message}`);
-        } catch (error) {
-            logger.error(`Erro ao enviar alerta para o Telegram: ${error.message}`);
-        }
+async function sendSystemStatus(bot, message) {
+    try {
+        await bot.sendMessage(CHANNEL_ID, message);
+        logger.info(`Status do sistema enviado: ${message}`);
+    } catch (error) {
+        logger.error(`Erro ao enviar status para o Telegram: ${error.message}`);
     }
 }
 
@@ -417,17 +401,23 @@ async function mainLoop() {
     let lastSignal = null; // Armazena o último sinal enviado
     let lastPredictedColor = null; // Armazena a última cor prevista
     let galeMessageSent = false; // Flag para evitar duplicação de mensagens de gale
+    let isSystemOperational = false; // Flag para indicar se o sistema está enviando sinais
 
     while (true) {
         try {
             const currentTime = performance.now();
-            if (currentTime - lastSessionRefresh >= SESSION_REFRESH_INTERVAL || !sessionId) {
-                logger.info("Atualizando JSESSIONID...");
+            // Só atualiza o JSESSIONID se ainda não existir ou se o acesso ao histórico falhar
+            if (!sessionId || (currentTime - lastSessionRefresh >= SESSION_REFRESH_INTERVAL)) {
+                logger.info("Obtendo ou atualizando JSESSIONID...");
                 sessionId = await getJSessionId();
                 lastSessionRefresh = currentTime;
                 if (!sessionId) {
-                    const errorMsg = "Sistema analisando novas oportunidades. Por favor aguarde ...";
-                    await sendErrorSignal(bot, errorMsg);
+                    logger.error("Falha ao obter JSESSIONID.");
+                    if (!isSystemInErrorState) {
+                        await sendSystemStatus(bot, "Alerta: Sistema analisando novas oportunidades. Por favor aguarde ...");
+                        isSystemInErrorState = true;
+                        isSystemOperational = false;
+                    }
                     await delay(30000);
                     continue;
                 }
@@ -435,10 +425,31 @@ async function mainLoop() {
 
             const gameData = await fetchGameHistory(sessionId);
             if (!gameData || !gameData.megaSicBacGameStatisticHistory) {
-                const errorMsg = "Falha ao obter histórico de jogos. Tentando novamente em 10 segundos...";
-                await sendErrorSignal(bot, errorMsg);
-                await delay(10000);
-                continue;
+                logger.warn("Falha ao acessar histórico de jogos com o JSESSIONID atual. Tentando renovar...");
+                sessionId = await getJSessionId(); // Tenta renovar o JSESSIONID
+                if (!sessionId) {
+                    logger.error("Falha ao renovar JSESSIONID.");
+                    if (!isSystemInErrorState) {
+                        await sendSystemStatus(bot, "Alerta: Sistema analisando novas oportunidades. Por favor aguarde ...");
+                        isSystemInErrorState = true;
+                        isSystemOperational = false;
+                    }
+                    await delay(30000);
+                    continue;
+                }
+                // Tenta novamente com o novo sessionId
+                const newGameData = await fetchGameHistory(sessionId);
+                if (!newGameData || !newGameData.megaSicBacGameStatisticHistory) {
+                    logger.error("Falha ao acessar histórico mesmo com novo JSESSIONID.");
+                    if (!isSystemInErrorState) {
+                        await sendSystemStatus(bot, "Alerta: Sistema analisando novas oportunidades. Por favor aguarde ...");
+                        isSystemInErrorState = true;
+                        isSystemOperational = false;
+                    }
+                    await delay(30000);
+                    continue;
+                }
+                gameData = newGameData; // Atualiza gameData com o sucesso
             }
 
             const newHistory = gameData.megaSicBacGameStatisticHistory;
@@ -516,16 +527,26 @@ async function mainLoop() {
                         lastSignal = signal;
                         newSignalDetected = true;
                         galeMessageSent = true; // Marca que um sinal foi enviado
+                        if (!isSystemOperational) {
+                            await sendSystemStatus(bot, "Sistema voltou ao normal. Sinais retomados.");
+                            isSystemInErrorState = false;
+                            isSystemOperational = true;
+                        }
                         break;
                     }
                 }
 
                 // Se não houver novo sinal detectado, mas ainda estamos em um ciclo de Gale
                 if (!newSignalDetected && galeLevel > 0 && !galeMessageSent) {
-                    const galeMessage = `Realizar Gale ${galeLevel} em ${currentBet}`;
+                    const galeMessage = `Realizar Gale ${galeLevel} na cor ${currentBet}`;
                     await sendSignalDefault(bot, galeMessage);
                     logger.info(`Enviada mensagem de Gale (sem novo padrão): ${galeMessage}`);
                     galeMessageSent = true;
+                    if (!isSystemOperational) {
+                        await sendSystemStatus(bot, "Sistema voltou ao normal. Sinais retomados.");
+                        isSystemInErrorState = false;
+                        isSystemOperational = true;
+                    }
                 }
             } else {
                 // Nenhuma nova jogada; aguarda antes de verificar novamente
@@ -533,10 +554,13 @@ async function mainLoop() {
                 await delay(5000);
             }
         } catch (error) {
-            const errorMsg = `Erro no sistema: ${error.message}. Tentando novamente em 30 segundos...`;
-            logger.error(errorMsg);
+            logger.error(`Erro no sistema: ${error.message}. Tentando novamente em 30 segundos...`);
             logger.error(`Stack trace: ${error.stack}`);
-            await sendErrorSignal(bot, errorMsg);
+            if (!isSystemInErrorState) {
+                await sendSystemStatus(bot, "Alerta: Sistema analisando novas oportunidades. Por favor aguarde ...");
+                isSystemInErrorState = true;
+                isSystemOperational = false;
+            }
             await delay(30000);
         }
     }
