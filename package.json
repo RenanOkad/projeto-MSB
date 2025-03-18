@@ -1,0 +1,23 @@
+{
+  "name": "projeto_mega_sic_bac_sinais",
+  "version": "1.0.0",
+  "main": "script.js",
+  "scripts": {
+    "start": "node script.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "postinstall": "npx playwright install --with-deps"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.8.2",
+    "node-telegram-bot-api": "^0.66.0",
+    "playwright": "^1.51.0",
+    "winston": "^3.17.0"
+  },
+  "description": "",
+  "devDependencies": {
+    "@types/node": "^22.13.10"
+  }
+}
