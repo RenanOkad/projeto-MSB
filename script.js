@@ -329,7 +329,7 @@ async function getJSessionId() {
         });
 
         // Aguarda até que o JSESSIONID seja capturado ou um tempo razoável
-        const maxWaitTime = 30000; // 30 segundos como limite seguro (ajustável)
+        const maxWaitTime = 300 * 1000; // 5 minutos como limite seguro (ajustável)
         const startTime = Date.now();
         while (!sessionId && (Date.now() - startTime) < maxWaitTime) {
             await delay(100); // Checa a cada 100ms
