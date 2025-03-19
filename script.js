@@ -329,7 +329,7 @@ async function getJSessionId() {
         });
 
         // Aguarda até que o JSESSIONID seja capturado ou um tempo razoável
-        const maxWaitTime = 300 * 1000; // 5 minutos como limite seguro (ajustável)
+        const maxWaitTime = 180 * 1000; // 5 minutos como limite seguro (ajustável)
         const startTime = Date.now();
         while (!sessionId && (Date.now() - startTime) < maxWaitTime) {
             await delay(100); // Checa a cada 100ms
@@ -617,7 +617,7 @@ async function mainLoop() {
                         newSignalDetected = true;
                         galeMessageSent = true; // Marca que um sinal foi enviado
                         if (!isSystemOperational) {
-                            await sendSystemStatus(bot, "Sistema voltou ao normal. Sinais retomados.");
+                            // await sendSystemStatus(bot, "Sistema voltou ao normal. Sinais retomados.");
                             isSystemInErrorState = false;
                             isSystemOperational = true;
                         }
