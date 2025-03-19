@@ -4,10 +4,12 @@ const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const { performance } = require('perf_hooks');
 const { exec } = require('child_process'); // Adicionado para gerenciar processos do sistema
+const schedule = require('node-schedule'); // Adicionado para agendamento
+const fs = require('fs'); // Adicionado para persistência dos contadores
 
 // Configurações básicas
 const TELEGRAM_TOKEN = "7353153409:AAFCy1qUjxzZSgT_XUoOScR1Rjl4URtfzk8"; // Token do bot do Telegram
-const CHANNEL_ID = "-1002223861805"; // ID ou nome do canal Telegram ID-Bot: 1750232012, ID Grupo: -1002223861805
+const CHANNEL_ID = "1750232012"; // ID ou nome do canal Telegram ID-Bot: 1750232012, ID Grupo: -1002223861805
 // Lista de URLs iniciais para tentar encontrar o botão de login
 const INITIAL_URLS = [
     "https://www.seguro.bet.br",
@@ -37,6 +39,46 @@ const logger = winston.createLogger({
 // Controle de mensagens de erro
 const lastErrorMessageTime = {};
 let isSystemInErrorState = false; // Flag para controlar o estado de erro e mensagens no Telegram
+
+// Função para carregar os contadores do arquivo
+function loadStats() {
+    try {
+        if (fs.existsSync('stats.json')) {
+            const data = fs.readFileSync('stats.json', 'utf8');
+            const parsed = JSON.parse(data);
+            return {
+                winsInitial: parsed.winsInitial || 0,
+                winsGale1: parsed.winsGale1 || 0,
+                winsGale2: parsed.winsGale2 || 0,
+                losses: parsed.losses || 0,
+                lastResetDate: parsed.lastResetDate || new Date().toDateString()
+            };
+        }
+    } catch (error) {
+        logger.error(`Erro ao carregar stats.json: ${error.message}`);
+    }
+    return {
+        winsInitial: 0,
+        winsGale1: 0,
+        winsGale2: 0,
+        losses: 0,
+        lastResetDate: new Date().toDateString()
+    };
+}
+
+// Função para salvar os contadores no arquivo
+function saveStats(stats) {
+    try {
+        fs.writeFileSync('stats.json', JSON.stringify(stats, null, 2));
+        logger.info('Contadores salvos em stats.json');
+    } catch (error) {
+        logger.error(`Erro ao salvar stats.json: ${error.message}`);
+    }
+}
+
+// Carrega os contadores na inicialização
+let stats = loadStats();
+let lastResetDate = stats.lastResetDate;
 
 function canSendErrorMessage(message) {
     const currentTime = Date.now();
@@ -387,6 +429,40 @@ async function sendSystemStatus(bot, message) {
     }
 }
 
+// Função para enviar e fixar o relatório diário
+async function sendDailyReport(bot) {
+    const currentDate = new Date().toDateString();
+    const totalWins = stats.winsInitial + stats.winsGale1 + stats.winsGale2;
+    const report = `
+📊 **Relatório Diário - ${new Date().toLocaleDateString('pt-BR')}**
+- Vitórias (Aposta Inicial): ${stats.winsInitial}
+- Vitórias (Gale 1): ${stats.winsGale1}
+- Vitórias (Gale 2): ${stats.winsGale2}
+- Perdas: ${stats.losses}
+- Total de Vitórias: ${totalWins}
+- Taxa de Sucesso: ${(totalWins / (totalWins + stats.losses) * 100 || 0).toFixed(2)}%
+    `;
+
+    try {
+        // Envia o relatório e obtém o message_id
+        const sentMessage = await bot.sendMessage(CHANNEL_ID, report);
+        const messageId = sentMessage.message_id;
+
+        // Fixa a mensagem (sem notificação)
+        await bot.pinChatMessage(CHANNEL_ID, messageId, { disable_notification: true });
+        logger.info(`Relatório diário enviado e fixado. Message ID: ${messageId}`);
+
+        // Reseta os contadores após o envio do relatório, se o dia mudou
+        if (currentDate !== lastResetDate) {
+            stats = { winsInitial: 0, winsGale1: 0, winsGale2: 0, losses: 0 };
+            lastResetDate = currentDate;
+            saveStats({ ...stats, lastResetDate });
+        }
+    } catch (error) {
+        logger.error(`Erro ao enviar ou fixar o relatório diário: ${error.message}`);
+    }
+}
+
 // Loop principal
 async function mainLoop() {
     const bot = new TelegramBot(TELEGRAM_TOKEN);
@@ -402,6 +478,11 @@ async function mainLoop() {
     let lastPredictedColor = null; // Armazena a última cor prevista
     let galeMessageSent = false; // Flag para evitar duplicação de mensagens de gale
     let isSystemOperational = false; // Flag para indicar se o sistema está enviando sinais
+
+    // Agendamento do relatório diário às 18:30 (horário local)
+    schedule.scheduleJob('30 18 * * *', () => {
+        sendDailyReport(bot);
+    });
 
     while (true) {
         try {
@@ -481,6 +562,11 @@ async function mainLoop() {
                         } else {
                             await sendSignalDefault(bot, `✅ GANHOU em ${currentBet}!`);
                         }
+                        if (galeLevel === 0) stats.winsInitial++;
+                        else if (galeLevel === 1) stats.winsGale1++;
+                        else if (galeLevel === 2) stats.winsGale2++;
+                        logger.info(`Vitória registrada: Initial=${stats.winsInitial}, Gale1=${stats.winsGale1}, Gale2=${stats.winsGale2}`);
+                        saveStats({ ...stats, lastResetDate }); // Salva os contadores após cada vitória
                         galeLevel = 0;
                         currentBet = null;
                         lastSignal = null;
@@ -488,6 +574,9 @@ async function mainLoop() {
                         galeLevel++;
                         if (galeLevel > maxGale) {
                             await sendSignalDefault(bot, `❌ PERDEU após ${maxGale} gales. Aguardando novo padrão...`);
+                            stats.losses++;
+                            logger.info(`Perda registrada: Losses=${stats.losses}`);
+                            saveStats({ ...stats, lastResetDate }); // Salva os contadores após cada perda
                             galeLevel = 0;
                             currentBet = null;
                             lastSignal = null;
