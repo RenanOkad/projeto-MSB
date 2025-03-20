@@ -309,6 +309,9 @@ async function getJSessionId() {
         await page.goto(GAME_URL, { waitUntil: 'networkidle', timeout: 90000 });
         logger.info(`URL atual após navegação para jogo: ${page.url()}`);
 
+        await delay(5000);
+        page.reload();
+
         // Captura o JSESSIONID usando requestfinished com filtro otimizado
         let sessionId = null;
         let isSessionIdCaptured = false;
@@ -330,7 +333,7 @@ async function getJSessionId() {
         });
 
         // Aguarda até que o JSESSIONID seja capturado ou um tempo reduzido
-        const maxWaitTime = 15000; // 15 segundos
+        const maxWaitTime = 60 * 1000; // Reduzido para 10 segundos por tentativa
         const maxAttempts = 3; // Número máximo de tentativas de recarregamento
         let attemptCount = 0;
 
@@ -346,7 +349,7 @@ async function getJSessionId() {
             }
 
             attemptCount++;
-            logger.warn(`JSESSIONID não capturado na tentativa ${attemptCount}/${maxAttempts}. Recarregando a página do jogo...`);
+            logger.info(`JSESSIONID não capturado na tentativa ${attemptCount}/${maxAttempts}. Recarregando a página do jogo (equivalente a F5)...`);
             await page.reload({ waitUntil: 'networkidle', timeout: 90000 });
         }
 
@@ -504,7 +507,7 @@ async function mainLoop() {
                 if (!sessionId) {
                     logger.error("Falha ao obter JSESSIONID após todas as tentativas.");
                     if (!isSystemInErrorState) {
-                        await sendSystemStatus(bot, "Alerta: Sistema enfrentando dificuldades para capturar JSESSIONID. Tentando novamente em breve...");
+                        // await sendSystemStatus(bot, "Alerta: Sistema enfrentando dificuldades para capturar JSESSIONID. Tentando novamente em breve...");
                         isSystemInErrorState = true;
                         isSystemOperational = false;
                     }
