@@ -178,7 +178,7 @@ async function getJSessionId() {
 
     if (!browser || !page) {
         logger.error("Falha ao inicializar o navegador ou página após todas as tentativas.");
-        return null;
+        return { sessionId: null, browser, page };
     }
 
     let sessionId = null;
@@ -205,7 +205,7 @@ async function getJSessionId() {
             const pageContent = await page.content();
             if (pageContent.includes('Error 1009') || pageContent.includes('The owner of this website has banned')) {
                 logger.error("Erro 1009: Bloqueio geográfico detectado. Verifique o proxy.");
-                return null;
+                return { sessionId: null, browser, page };
             }
 
             logger.info(`Tentando localizar o botão 'Entrar' em ${url}...`);
@@ -309,7 +309,7 @@ async function getJSessionId() {
         await page.goto(GAME_URL, { waitUntil: 'networkidle', timeout: 90000 });
         logger.info(`URL atual após navegação para jogo: ${page.url()}`);
 
-        // Captura o JSESSIONID usando requestfinished com flag de parada
+        // Captura o JSESSIONID usando requestfinished com filtro otimizado
         let sessionId = null;
         let isSessionIdCaptured = false;
 
@@ -317,8 +317,9 @@ async function getJSessionId() {
             if (isSessionIdCaptured) return; // Para o monitoramento após capturar
 
             const url = request.url();
-            if ((url.toLowerCase().includes('games.pragmaticplaylive.net') || url.toLowerCase().includes('client.pragmaticplaylive')) && url.toLowerCase().includes('jsessionid')) {
-                logger.info(`Requisição capturada: ${request.url()}`);
+            // Filtra apenas requisições que contenham "pragmaticplaylive" e "jsessionid" na URL
+            if (url.toLowerCase().includes('pragmaticplaylive') && url.toLowerCase().includes('jsessionid')) {
+                logger.info(`Requisição potencial capturada: ${url}`);
                 const match = url.match(/JSESSIONID=([^&]+)/i);
                 if (match) {
                     sessionId = match[1];
@@ -328,35 +329,37 @@ async function getJSessionId() {
             }
         });
 
-        // Aguarda até que o JSESSIONID seja capturado ou um tempo razoável
-        const maxWaitTime = 180 * 1000; // 5 minutos como limite seguro (ajustável)
-        const startTime = Date.now();
-        while (!sessionId && (Date.now() - startTime) < maxWaitTime) {
-            await delay(100); // Checa a cada 100ms
+        // Aguarda até que o JSESSIONID seja capturado ou um tempo reduzido
+        const maxWaitTime = 15000; // 15 segundos
+        const maxAttempts = 3; // Número máximo de tentativas de recarregamento
+        let attemptCount = 0;
+
+        while (!sessionId && attemptCount < maxAttempts) {
+            const startTime = Date.now();
+            while (!sessionId && (Date.now() - startTime) < maxWaitTime) {
+                await delay(100); // Checa a cada 100ms
+            }
+
+            if (sessionId) {
+                logger.info("JSESSIONID capturado com sucesso. Interrompendo tentativas.");
+                break; // Sai do loop assim que o JSESSIONID é capturado
+            }
+
+            attemptCount++;
+            logger.warn(`JSESSIONID não capturado na tentativa ${attemptCount}/${maxAttempts}. Recarregando a página do jogo...`);
+            await page.reload({ waitUntil: 'networkidle', timeout: 90000 });
         }
 
         if (!sessionId) {
-            logger.error("JSESSIONID não capturado dentro do tempo limite.");
-            throw new Error("Falha ao capturar JSESSIONID.");
+            logger.error("JSESSIONID não capturado após todas as tentativas.");
+            return { sessionId: null, browser, page };
         }
 
-        return sessionId;
+        return { sessionId, browser, page };
     } catch (error) {
         logger.error(`Erro ao capturar JSESSIONID: ${error.message}`);
         logger.error(`Stack trace: ${error.stack}`);
-        return null;
-    } finally {
-        if (browser) {
-            try {
-                await browser.close();
-                logger.info("Navegador encerrado com sucesso.");
-            } catch (error) {
-                logger.warn(`Erro ao encerrar navegador: ${error.message}`);
-            } finally {
-                // Garante que o processo seja encerrado
-                await killChromeProcesses();
-            }
-        }
+        return { sessionId: null, browser, page };
     }
 }
 
@@ -478,6 +481,8 @@ async function mainLoop() {
     let lastPredictedColor = null; // Armazena a última cor prevista
     let galeMessageSent = false; // Flag para evitar duplicação de mensagens de gale
     let isSystemOperational = false; // Flag para indicar se o sistema está enviando sinais
+    let browser = null;
+    let page = null;
 
     // Agendamento do relatório diário às 18:30 (horário local)
     schedule.scheduleJob('30 18 * * *', () => {
@@ -490,16 +495,21 @@ async function mainLoop() {
             // Só atualiza o JSESSIONID se ainda não existir ou se o acesso ao histórico falhar
             if (!sessionId || (currentTime - lastSessionRefresh >= SESSION_REFRESH_INTERVAL)) {
                 logger.info("Obtendo ou atualizando JSESSIONID...");
-                sessionId = await getJSessionId();
+                const result = await getJSessionId();
+                sessionId = result.sessionId;
+                browser = result.browser;
+                page = result.page;
                 lastSessionRefresh = currentTime;
+
                 if (!sessionId) {
-                    logger.error("Falha ao obter JSESSIONID.");
+                    logger.error("Falha ao obter JSESSIONID após todas as tentativas.");
                     if (!isSystemInErrorState) {
-                        await sendSystemStatus(bot, "Alerta: Sistema analisando novas oportunidades. Por favor aguarde ...");
+                        await sendSystemStatus(bot, "Alerta: Sistema enfrentando dificuldades para capturar JSESSIONID. Tentando novamente em breve...");
                         isSystemInErrorState = true;
                         isSystemOperational = false;
                     }
-                    await delay(30000);
+                    // Em vez de reiniciar, espera mais tempo antes de tentar novamente
+                    await delay(60000); // Espera 1 minuto antes de tentar novamente
                     continue;
                 }
             }
@@ -507,30 +517,18 @@ async function mainLoop() {
             const gameData = await fetchGameHistory(sessionId);
             if (!gameData || !gameData.megaSicBacGameStatisticHistory) {
                 logger.warn("Falha ao acessar histórico de jogos com o JSESSIONID atual. Tentando renovar...");
-                sessionId = await getJSessionId(); // Tenta renovar o JSESSIONID
-                if (!sessionId) {
-                    logger.error("Falha ao renovar JSESSIONID.");
-                    if (!isSystemInErrorState) {
-                        await sendSystemStatus(bot, "Alerta: Sistema analisando novas oportunidades. Por favor aguarde ...");
-                        isSystemInErrorState = true;
-                        isSystemOperational = false;
+                sessionId = null; // Força a recaptura do JSESSIONID
+                if (browser) {
+                    try {
+                        await browser.close();
+                        logger.info("Navegador fechado para nova tentativa.");
+                    } catch (error) {
+                        logger.warn(`Erro ao fechar navegador: ${error.message}`);
                     }
-                    await delay(30000);
-                    continue;
                 }
-                // Tenta novamente com o novo sessionId
-                const newGameData = await fetchGameHistory(sessionId);
-                if (!newGameData || !newGameData.megaSicBacGameStatisticHistory) {
-                    logger.error("Falha ao acessar histórico mesmo com novo JSESSIONID.");
-                    if (!isSystemInErrorState) {
-                        await sendSystemStatus(bot, "Alerta: Sistema analisando novas oportunidades. Por favor aguarde ...");
-                        isSystemInErrorState = true;
-                        isSystemOperational = false;
-                    }
-                    await delay(30000);
-                    continue;
-                }
-                gameData = newGameData; // Atualiza gameData com o sucesso
+                browser = null;
+                page = null;
+                continue;
             }
 
             const newHistory = gameData.megaSicBacGameStatisticHistory;
@@ -617,7 +615,7 @@ async function mainLoop() {
                         newSignalDetected = true;
                         galeMessageSent = true; // Marca que um sinal foi enviado
                         if (!isSystemOperational) {
-                            // await sendSystemStatus(bot, "Sistema voltou ao normal. Sinais retomados.");
+                            await sendSystemStatus(bot, "Sistema voltou ao normal. Sinais retomados.");
                             isSystemInErrorState = false;
                             isSystemOperational = true;
                         }
@@ -650,6 +648,17 @@ async function mainLoop() {
                 isSystemInErrorState = true;
                 isSystemOperational = false;
             }
+            if (browser) {
+                try {
+                    await browser.close();
+                    logger.info("Navegador fechado após erro.");
+                } catch (err) {
+                    logger.warn(`Erro ao fechar navegador após falha: ${err.message}`);
+                }
+            }
+            browser = null;
+            page = null;
+            sessionId = null;
             await delay(30000);
         }
     }
