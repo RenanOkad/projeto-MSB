@@ -1,2 +1,9 @@
-/node_modules
-signal_system.log
+free/node_modules
+vip/node_modules
+test/node_modules
+free/stats.json
+vip/stats.json
+test/stats.json
+free/signal_system.log
+vip/signal_system.log
+test/signal_system.log
