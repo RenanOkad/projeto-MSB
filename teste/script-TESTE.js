@@ -6,10 +6,11 @@ const { performance } = require('perf_hooks');
 const { exec } = require('child_process');
 const schedule = require('node-schedule');
 const fs = require('fs');
+const moment = require('moment-timezone'); // Adiciona a biblioteca moment-timezone
 
 // Configurações básicas
 const TELEGRAM_TOKEN = "7353153409:AAFCy1qUjxzZSgT_XUoOScR1Rjl4URtfzk8";
-const CHANNEL_ID = "1750232012"; // ID ou nome do canal Telegram ID-Bot: 1750232012, ID Grupo: -1002223861805, ID Grupo VIP: -1002357054147
+const CHANNEL_ID = "-1002223861805";
 const INITIAL_URLS = [
     "https://www.seguro.bet.br",
     "https://www.seguro.bet.br/cassino/slots/all?btag=2329948",
@@ -93,11 +94,11 @@ function canSendErrorMessage(message) {
 
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Função para verificar se está dentro dos horários de funcionamento (9h-12h, 16h-18h, 21h-22h)
+// Função para verificar se está dentro dos horários de funcionamento (9h-12h, 16h-18h, 21h-22h) no horário de Brasília
 function isOperatingHours() {
-    const now = new Date();
-    const hours = now.getHours();
-    const minutes = now.getMinutes();
+    const now = moment().tz('America/Sao_Paulo'); // Obtém o horário atual em Brasília
+    const hours = now.hours();
+    const minutes = now.minutes();
     const currentTime = hours * 60 + minutes; // Converte o horário atual para minutos
 
     // Define os intervalos em minutos
@@ -113,7 +114,7 @@ function isOperatingHours() {
 
 // Função para resetar os contadores da sessão no início de cada janela de funcionamento
 function resetSessionStats() {
-    sessionStats = { winsInitial: 0, winsGale1: 0, winsGale2: 0, losses: 0, startTime: new Date().toISOString() };
+    sessionStats = { winsInitial: 0, winsGale1: 0, winsGale2: 0, losses: 0, startTime: moment().tz('America/Sao_Paulo').toISOString() };
     saveStats({ ...stats, lastResetDate, weeklyStats, sessionStats });
     logger.info('Contadores da sessão resetados.');
 }
@@ -447,13 +448,13 @@ async function sendSystemStatus(bot, message) {
 
 // Função para enviar e fixar o relatório diário
 async function sendDailyReport(bot) {
-    const currentDate = new Date().toDateString();
+    const currentDate = moment().tz('America/Sao_Paulo').toDate().toDateString();
     const totalWins = stats.winsInitial + stats.winsGale1 + stats.winsGale2;
     const totalBets = totalWins + stats.losses;
     const winRate = totalBets > 0 ? (totalWins / totalBets * 100).toFixed(2) : 0;
 
     const report = `
-📊 **Relatório Diário - ${new Date().toLocaleDateString('pt-BR')}**
+📊 **Relatório Diário - ${moment().tz('America/Sao_Paulo').format('DD/MM/YYYY')}**
 - Vitórias (Aposta Inicial): ${stats.winsInitial}
 - Vitórias (Gale 1): ${stats.winsGale1}
 - Vitórias (Gale 2): ${stats.winsGale2}
@@ -506,8 +507,8 @@ Curtiu os sinais? Vamos lucrar juntos 🔥🔥🚀🚀
 
 // Função para enviar o relatório semanal
 async function sendWeeklyReport(bot) {
-    const now = new Date();
-    const startDate = new Date(weeklyStats.startDate);
+    const now = moment().tz('America/Sao_Paulo');
+    const startDate = moment(weeklyStats.startDate).tz('America/Sao_Paulo');
     const daysSinceStart = Math.floor((now - startDate) / (1000 * 60 * 60 * 24));
 
     if (daysSinceStart >= 7) {
@@ -517,7 +518,7 @@ async function sendWeeklyReport(bot) {
         const initialWinRate = weeklyStats.initialWins > 0 ? (weeklyStats.initialWins / totalBets * 100).toFixed(2) : 0;
 
         const report = `
-📅 **Relatório Semanal - ${startDate.toLocaleDateString('pt-BR')} a ${now.toLocaleDateString('pt-BR')}**
+📅 **Relatório Semanal - ${startDate.format('DD/MM/YYYY')} a ${now.format('DD/MM/YYYY')}**
 - Total de Vitórias: ${totalWins}
 - Total de Perdas: ${weeklyStats.losses}
 - Taxa de Acerto Geral: ${winRate}%
@@ -552,27 +553,33 @@ async function mainLoop() {
     let lastPredictedColor = null;
     let galeMessageSent = false;
     let isSystemOperational = false;
-    let lastOperatingStatus = null; // Para rastrear mudanças no status de operação
+    let lastOperatingStatus = null;
 
-    // Agendamento do relatório diário às 18:30
-    schedule.scheduleJob('30 18 * * *', () => {
+    // Configura o node-schedule para usar o fuso horário de Brasília
+    const scheduleWithTimezone = (rule, callback) => {
+        const job = schedule.scheduleJob({ ...rule, tz: 'America/Sao_Paulo' }, callback);
+        return job;
+    };
+
+    // Agendamento do relatório diário às 18:30 (horário de Brasília)
+    scheduleWithTimezone({ hour: 18, minute: 30, second: 0 }, () => {
         sendDailyReport(bot);
     });
 
-    // Agendamento do relatório semanal às 18:30 de segunda-feira
-    schedule.scheduleJob('30 18 * * 1', () => {
+    // Agendamento do relatório semanal às 18:30 de segunda-feira (horário de Brasília)
+    scheduleWithTimezone({ hour: 18, minute: 30, second: 0, dayOfWeek: 1 }, () => {
         sendWeeklyReport(bot);
     });
 
-    // Agendamento para resetar os contadores da sessão no início de cada janela
-    schedule.scheduleJob('0 9 * * *', () => resetSessionStats());  // 9h
-    schedule.scheduleJob('0 16 * * *', () => resetSessionStats()); // 16h
-    schedule.scheduleJob('0 21 * * *', () => resetSessionStats()); // 21h
+    // Agendamento para resetar os contadores da sessão no início de cada janela (horário de Brasília)
+    scheduleWithTimezone({ hour: 9, minute: 0, second: 0 }, () => resetSessionStats());  // 9h
+    scheduleWithTimezone({ hour: 16, minute: 0, second: 0 }, () => resetSessionStats()); // 16h
+    scheduleWithTimezone({ hour: 21, minute: 0, second: 0 }, () => resetSessionStats()); // 21h
 
-    // Agendamento dos relatórios de sessão no final de cada janela
-    schedule.scheduleJob('0 12 * * *', () => sendSessionReport(bot, "9:00", "12:00"));  // Relatório da sessão 9h-12h
-    schedule.scheduleJob('0 18 * * *', () => sendSessionReport(bot, "16:00", "18:00")); // Relatório da sessão 16h-18h
-    schedule.scheduleJob('0 22 * * *', () => sendSessionReport(bot, "21:00", "22:00")); // Relatório da sessão 21h-22h
+    // Agendamento dos relatórios de sessão no final de cada janela (horário de Brasília)
+    scheduleWithTimezone({ hour: 12, minute: 0, second: 0 }, () => sendSessionReport(bot, "9:00", "12:00"));  // Relatório da sessão 9h-12h
+    scheduleWithTimezone({ hour: 18, minute: 0, second: 0 }, () => sendSessionReport(bot, "16:00", "18:00")); // Relatório da sessão 16h-18h
+    scheduleWithTimezone({ hour: 22, minute: 0, second: 0 }, () => sendSessionReport(bot, "21:00", "22:00")); // Relatório da sessão 21h-22h
 
     while (true) {
         try {
