@@ -610,9 +610,9 @@ async function mainLoop() {
                     const result = latestGame.result;
                     if (result === currentBet || result === "TIE") {
                         if (result === "TIE") {
-                            await sendSignalDefault(bot, "✅ GANHOU em TIE!");
+                            await sendSignalDefault(bot, "✅ GANHAMOS em TIE!");
                         } else {
-                            await sendSignalDefault(bot, `✅ GANHOU em ${currentBet}!`);
+                            await sendSignalDefault(bot, `✅ GANHAMOS em ${currentBet}!`);
                         }
                         if (galeLevel === 0) {
                             stats.winsInitial++;
@@ -628,7 +628,7 @@ async function mainLoop() {
                     } else {
                         galeLevel++;
                         if (galeLevel > maxGale) {
-                            await sendSignalDefault(bot, `❌ PERDEU após ${maxGale} gales. Aguardando novo padrão...`);
+                            await sendSignalDefault(bot, `❌ PERDEMOS após ${maxGale} gales. Padrão quebrado, segue o game e aguardando novo padrão...`);
                             stats.losses++;
                             weeklyStats.losses++;
                             logger.info(`Perda registrada: Losses=${stats.losses}`);
