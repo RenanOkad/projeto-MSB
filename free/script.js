@@ -254,6 +254,7 @@ async function getJSessionId() {
         const usernameSelectors = [
             'xpath=/html/body/div[11]/div/div/div/div/div/form/div[1]/div[2]/div/div/input',
             'xpath=/html/body/div[13]/div/div/div/div/div/form/div[1]/div[2]/div/div/input',
+            'xpath=/html/body/div[8]/div/div/div/div/div/form/div[1]/div[2]/div[1]/div/input',
             'input[name="username"]',
             'input[placeholder="E-mail"]'
         ];
@@ -283,6 +284,7 @@ async function getJSessionId() {
         const passwordSelectors = [
             'xpath=/html/body/div[11]/div/div/div/div/div/form/div[2]/div[2]/div/div/span/input',
             'xpath=/html/body/div[13]/div/div/div/div/div/form/div[2]/div[2]/div/div/span/input',
+            'xpath=/html/body/div[8]/div/div/div/div/div/form/div[2]/div[2]/div[1]/div/span/input',
             'input[name="password"]',
             'input[placeholder="Senha"]'
         ];
