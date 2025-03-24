@@ -9,7 +9,7 @@ const fs = require('fs'); // Adicionado para persistência dos contadores
 
 // Configurações básicas
 const TELEGRAM_TOKEN = "7353153409:AAFCy1qUjxzZSgT_XUoOScR1Rjl4URtfzk8"; // Token do bot do Telegram
-const CHANNEL_ID = "-1002223861805"; // ID ou nome do canal Telegram ID-Bot: 1750232012, ID Grupo: -1002223861805, ID Grupo VIP: -1002357054147
+const CHANNEL_ID = "1750232012"; // ID ou nome do canal Telegram ID-Bot: 1750232012, ID Grupo: -1002223861805, ID Grupo VIP: -1002357054147
 // Lista de URLs iniciais para tentar encontrar o botão de login
 const INITIAL_URLS = [
     "https://www.seguro.bet.br",
@@ -252,6 +252,7 @@ async function getJSessionId() {
         // Preenche o campo de nome de usuário com seletores alternativos
         logger.info("Tentando preencher o campo de usuário...");
         const usernameSelectors = [
+            '#username',
             'xpath=/html/body/div[11]/div/div/div/div/div/form/div[1]/div[2]/div/div/input',
             'xpath=/html/body/div[13]/div/div/div/div/div/form/div[1]/div[2]/div/div/input',
             'xpath=/html/body/div[8]/div/div/div/div/div/form/div[1]/div[2]/div[1]/div/input',
@@ -282,6 +283,7 @@ async function getJSessionId() {
         // Preenche o campo de senha com seletores alternativos
         logger.info("Tentando preencher o campo de senha...");
         const passwordSelectors = [
+            '#password',
             'xpath=/html/body/div[11]/div/div/div/div/div/form/div[2]/div[2]/div/div/span/input',
             'xpath=/html/body/div[13]/div/div/div/div/div/form/div[2]/div[2]/div/div/span/input',
             'xpath=/html/body/div[8]/div/div/div/div/div/form/div[2]/div[2]/div[1]/div/span/input',

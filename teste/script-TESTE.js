@@ -212,6 +212,7 @@ async function getJSessionId() {
             'button.v3-btn',
             'xpath=/html/body/div[2]/div[1]/div/div[2]/header/div[2]/div/div/div/div/div[3]/div/div/div/div/div/button[1]',
             'button:has-text("Entrar")'
+            
         ];
 
         let enterButton = null;
@@ -267,6 +268,7 @@ async function getJSessionId() {
 
         logger.info("Tentando preencher o campo de usuário...");
         const usernameSelectors = [
+            '#username',
             'xpath=/html/body/div[11]/div/div/div/div/div/form/div[1]/div[2]/div/div/input',
             'xpath=/html/body/div[13]/div/div/div/div/div/form/div[1]/div[2]/div/div/input',
             'xpath=/html/body/div[8]/div/div/div/div/div/form/div[1]/div[2]/div[1]/div/input',
@@ -295,6 +297,7 @@ async function getJSessionId() {
 
         logger.info("Tentando preencher o campo de senha...");
         const passwordSelectors = [
+            '#password',
             'xpath=/html/body/div[11]/div/div/div/div/div/form/div[2]/div[2]/div/div/span/input',
             'xpath=/html/body/div[13]/div/div/div/div/div/form/div[2]/div[2]/div/div/span/input',
             'xpath=/html/body/div[8]/div/div/div/div/div/form/div[2]/div[2]/div[1]/div/span/input',

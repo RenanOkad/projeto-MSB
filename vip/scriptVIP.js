@@ -252,6 +252,7 @@ async function getJSessionId() {
         // Preenche o campo de nome de usuário com seletores alternativos
         logger.info("Tentando preencher o campo de usuário...");
         const usernameSelectors = [
+            '#username',
             'xpath=/html/body/div[11]/div/div/div/div/div/form/div[1]/div[2]/div/div/input',
             'xpath=/html/body/div[13]/div/div/div/div/div/form/div[1]/div[2]/div/div/input',
             'xpath=/html/body/div[8]/div/div/div/div/div/form/div[1]/div[2]/div[1]/div/input',
@@ -282,6 +283,7 @@ async function getJSessionId() {
         // Preenche o campo de senha com seletores alternativos
         logger.info("Tentando preencher o campo de senha...");
         const passwordSelectors = [
+            '#password',
             'xpath=/html/body/div[11]/div/div/div/div/div/form/div[2]/div[2]/div/div/span/input',
             'xpath=/html/body/div[13]/div/div/div/div/div/form/div[2]/div[2]/div/div/span/input',
             'xpath=/html/body/div[8]/div/div/div/div/div/form/div[2]/div[2]/div[1]/div/span/input',
