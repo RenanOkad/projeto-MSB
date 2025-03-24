@@ -6,7 +6,7 @@ const { performance } = require('perf_hooks');
 const { exec } = require('child_process');
 const schedule = require('node-schedule');
 const fs = require('fs');
-const moment = require('moment-timezone'); // Adiciona a biblioteca moment-timezone
+const moment = require('moment-timezone');
 
 // Configurações básicas
 const TELEGRAM_TOKEN = "7353153409:AAFCy1qUjxzZSgT_XUoOScR1Rjl4URtfzk8";
@@ -96,19 +96,17 @@ const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Função para verificar se está dentro dos horários de funcionamento (9h-12h, 16h-18h, 21h-22h) no horário de Brasília
 function isOperatingHours() {
-    const now = moment().tz('America/Sao_Paulo'); // Obtém o horário atual em Brasília
+    const now = moment().tz('America/Sao_Paulo');
     const hours = now.hours();
     const minutes = now.minutes();
-    const currentTime = hours * 60 + minutes; // Converte o horário atual para minutos
+    const currentTime = hours * 60 + minutes;
 
-    // Define os intervalos em minutos
     const intervals = [
-        { start: 9 * 60, end: 12 * 60 },  // 9h-12h
-        { start: 16 * 60, end: 18 * 60 }, // 16h-18h
-        { start: 21 * 60, end: 22 * 60 }  // 21h-22h
+        { start: 9 * 60, end: 12 * 60 },
+        { start: 16 * 60, end: 18 * 60 },
+        { start: 21 * 60, end: 22 * 60 }
     ];
 
-    // Verifica se o horário atual está dentro de algum intervalo
     return intervals.some(interval => currentTime >= interval.start && currentTime < interval.end);
 }
 
@@ -271,6 +269,7 @@ async function getJSessionId() {
         const usernameSelectors = [
             'xpath=/html/body/div[11]/div/div/div/div/div/form/div[1]/div[2]/div/div/input',
             'xpath=/html/body/div[13]/div/div/div/div/div/form/div[1]/div[2]/div/div/input',
+            'xpath=/html/body/div[8]/div/div/div/div/div/form/div[1]/div[2]/div[1]/div/input',
             'input[name="username"]',
             'input[placeholder="E-mail"]'
         ];
@@ -298,6 +297,7 @@ async function getJSessionId() {
         const passwordSelectors = [
             'xpath=/html/body/div[11]/div/div/div/div/div/form/div[2]/div[2]/div/div/span/input',
             'xpath=/html/body/div[13]/div/div/div/div/div/form/div[2]/div[2]/div/div/span/input',
+            'xpath=/html/body/div[8]/div/div/div/div/div/form/div[2]/div[2]/div[1]/div/span/input',
             'input[name="password"]',
             'input[placeholder="Senha"]'
         ];
@@ -446,6 +446,103 @@ async function sendSystemStatus(bot, message) {
     }
 }
 
+// Função para processar um sinal e retornar o resultado (vitória, perda ou gale)
+async function processSignal(sessionId, history, patterns, currentBet, galeLevel, maxGale, lastGameId, bot) {
+    let newHistory = history;
+    let newGameId = lastGameId;
+    let resultProcessed = false;
+    let updatedGaleLevel = galeLevel;
+    let updatedCurrentBet = currentBet;
+
+    while (!resultProcessed) {
+        const gameData = await fetchGameHistory(sessionId);
+        if (!gameData || !gameData.megaSicBacGameStatisticHistory) {
+            logger.warn("Falha ao acessar histórico de jogos. Tentando novamente...");
+            await delay(5000);
+            continue;
+        }
+
+        newHistory = gameData.megaSicBacGameStatisticHistory;
+        if (!newHistory.length) {
+            logger.warning("Histórico vazio. Tentando novamente em 5 segundos...");
+            await delay(5000);
+            continue;
+        }
+
+        const latestGame = newHistory[0];
+        newGameId = latestGame.gameId;
+
+        if (newGameId !== lastGameId) {
+            logger.info(`Nova jogada detectada: gameId ${newGameId}`);
+            const result = latestGame.result;
+            if (result === currentBet || result === "TIE") {
+                if (result === "TIE") {
+                    await sendSignalDefault(bot, "✅ GANHAMOS em TIE!");
+                } else {
+                    await sendSignalDefault(bot, `✅ GANHAMOS em ${currentBet}!`);
+                }
+                if (galeLevel === 0) {
+                    stats.winsInitial++;
+                    weeklyStats.initialWins++;
+                    sessionStats.winsInitial++;
+                } else if (galeLevel === 1) {
+                    stats.winsGale1++;
+                    sessionStats.winsGale1++;
+                } else if (galeLevel === 2) {
+                    stats.winsGale2++;
+                    sessionStats.winsGale2++;
+                }
+                weeklyStats.wins++;
+                logger.info(`Vitória registrada: Initial=${stats.winsInitial}, Gale1=${stats.winsGale1}, Gale2=${stats.winsGale2}`);
+                saveStats({ ...stats, lastResetDate, weeklyStats, sessionStats });
+                updatedGaleLevel = 0;
+                updatedCurrentBet = null;
+                resultProcessed = true;
+            } else {
+                updatedGaleLevel++;
+                if (updatedGaleLevel > maxGale) {
+                    await sendSignalDefault(bot, `❌ PERDEMOS após ${maxGale} gales. Padrão quebrado, segue o game e aguardando novo padrão...`);
+                    stats.losses++;
+                    weeklyStats.losses++;
+                    sessionStats.losses++;
+                    logger.info(`Perda registrada: Losses=${stats.losses}`);
+                    saveStats({ ...stats, lastResetDate, weeklyStats, sessionStats });
+                    updatedGaleLevel = 0;
+                    updatedCurrentBet = null;
+                    resultProcessed = true;
+                } else {
+                    const galeMessage = `Realizar Gale ${updatedGaleLevel} na cor ${currentBet}`;
+                    await sendSignalDefault(bot, galeMessage);
+                    logger.info(`Enviada mensagem de Gale: ${galeMessage}`);
+                    lastGameId = newGameId;
+                    history = newHistory;
+                    patterns = buildPatterns(history);
+                }
+            }
+            lastGameId = newGameId;
+            history = newHistory;
+            patterns = buildPatterns(history);
+        } else {
+            logger.info(`Nenhuma nova jogada. Último gameId: ${lastGameId}`);
+            await delay(5000);
+        }
+    }
+
+    return { history, patterns, galeLevel: updatedGaleLevel, currentBet: updatedCurrentBet, lastGameId };
+}
+
+// Função para finalizar sinais pendentes antes do término da sessão
+async function finalizePendingSignal(sessionId, history, patterns, currentBet, galeLevel, maxGale, lastGameId, bot) {
+    if (!currentBet) {
+        logger.info("Nenhum sinal pendente para finalizar.");
+        return { history, patterns, galeLevel, currentBet, lastGameId };
+    }
+
+    logger.info("Finalizando sinal pendente antes do término da sessão...");
+    const result = await processSignal(sessionId, history, patterns, currentBet, galeLevel, maxGale, lastGameId, bot);
+    return result;
+}
+
 // Função para enviar e fixar o relatório diário
 async function sendDailyReport(bot) {
     const currentDate = moment().tz('America/Sao_Paulo').toDate().toDateString();
@@ -481,7 +578,10 @@ Curtiu os sinais? Vamos lucrar juntos 🔥🔥🚀🚀
 }
 
 // Função para enviar o relatório da sessão
-async function sendSessionReport(bot, sessionStart, sessionEnd) {
+async function sendSessionReport(bot, sessionStart, sessionEnd, sessionId, history, patterns, currentBet, galeLevel, maxGale, lastGameId) {
+    // Finaliza qualquer sinal pendente antes de enviar o relatório
+    const result = await finalizePendingSignal(sessionId, history, patterns, currentBet, galeLevel, maxGale, lastGameId, bot);
+
     const totalWins = sessionStats.winsInitial + sessionStats.winsGale1 + sessionStats.winsGale2;
     const totalBets = totalWins + sessionStats.losses;
     const winRate = totalBets > 0 ? (totalWins / totalBets * 100).toFixed(2) : 0;
@@ -503,6 +603,8 @@ Curtiu os sinais? Vamos lucrar juntos 🔥🔥🚀🚀
     } catch (error) {
         logger.error(`Erro ao enviar o relatório da sessão: ${error.message}`);
     }
+
+    return result;
 }
 
 // Função para enviar o relatório semanal
@@ -572,18 +674,49 @@ async function mainLoop() {
     });
 
     // Agendamento para resetar os contadores da sessão no início de cada janela (horário de Brasília)
-    scheduleWithTimezone({ hour: 9, minute: 0, second: 0 }, () => resetSessionStats());  // 9h
-    scheduleWithTimezone({ hour: 16, minute: 0, second: 0 }, () => resetSessionStats()); // 16h
-    scheduleWithTimezone({ hour: 21, minute: 0, second: 0 }, () => resetSessionStats()); // 21h
+    scheduleWithTimezone({ hour: 9, minute: 0, second: 0 }, () => resetSessionStats());
+    scheduleWithTimezone({ hour: 16, minute: 0, second: 0 }, () => resetSessionStats());
+    scheduleWithTimezone({ hour: 21, minute: 0, second: 0 }, () => resetSessionStats());
 
     // Agendamento dos relatórios de sessão no final de cada janela (horário de Brasília)
-    scheduleWithTimezone({ hour: 12, minute: 0, second: 0 }, () => sendSessionReport(bot, "9:00", "12:00"));  // Relatório da sessão 9h-12h
-    scheduleWithTimezone({ hour: 18, minute: 0, second: 0 }, () => sendSessionReport(bot, "16:00", "18:00")); // Relatório da sessão 16h-18h
-    scheduleWithTimezone({ hour: 22, minute: 0, second: 0 }, () => sendSessionReport(bot, "21:00", "22:00")); // Relatório da sessão 21h-22h
+    scheduleWithTimezone({ hour: 12, minute: 0, second: 0 }, async () => {
+        const result = await sendSessionReport(bot, "9:00", "12:00", sessionId, history, patterns, currentBet, galeLevel, maxGale, lastGameId);
+        history = result.history;
+        patterns = result.patterns;
+        galeLevel = result.galeLevel;
+        currentBet = result.currentBet;
+        lastGameId = result.lastGameId;
+        lastSignal = null;
+        galeMessageSent = false;
+        lastPredictedColor = null;
+    });
+
+    scheduleWithTimezone({ hour: 18, minute: 0, second: 0 }, async () => {
+        const result = await sendSessionReport(bot, "16:00", "18:00", sessionId, history, patterns, currentBet, galeLevel, maxGale, lastGameId);
+        history = result.history;
+        patterns = result.patterns;
+        galeLevel = result.galeLevel;
+        currentBet = result.currentBet;
+        lastGameId = result.lastGameId;
+        lastSignal = null;
+        galeMessageSent = false;
+        lastPredictedColor = null;
+    });
+
+    scheduleWithTimezone({ hour: 22, minute: 0, second: 0 }, async () => {
+        const result = await sendSessionReport(bot, "21:00", "22:00", sessionId, history, patterns, currentBet, galeLevel, maxGale, lastGameId);
+        history = result.history;
+        patterns = result.patterns;
+        galeLevel = result.galeLevel;
+        currentBet = result.currentBet;
+        lastGameId = result.lastGameId;
+        lastSignal = null;
+        galeMessageSent = false;
+        lastPredictedColor = null;
+    });
 
     while (true) {
         try {
-            // Verifica se está dentro do horário de funcionamento
             const operating = isOperatingHours();
             if (lastOperatingStatus !== operating) {
                 if (operating) {
@@ -595,7 +728,7 @@ async function mainLoop() {
             }
 
             if (!operating) {
-                await delay(60000); // Aguarda 1 minuto antes de verificar novamente
+                await delay(60000);
                 continue;
             }
 
