@@ -9,7 +9,7 @@ const fs = require('fs'); // Adicionado para persistência dos contadores
 
 // Configurações básicas
 const TELEGRAM_TOKEN = "7353153409:AAFCy1qUjxzZSgT_XUoOScR1Rjl4URtfzk8"; // Token do bot do Telegram
-const CHANNEL_ID = "1750232012"; // ID ou nome do canal Telegram ID-Bot: 1750232012, ID Grupo: -1002223861805, ID Grupo VIP: -1002357054147
+const CHANNEL_ID = "-1002223861805"; // ID ou nome do canal Telegram ID-Bot: 1750232012, ID Grupo: -1002223861805, ID Grupo VIP: -1002357054147
 // Lista de URLs iniciais para tentar encontrar o botão de login
 const INITIAL_URLS = [
     "https://www.seguro.bet.br",
