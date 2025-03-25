@@ -9,7 +9,7 @@ const fs = require('fs');
 
 // Configurações básicas
 const TELEGRAM_TOKEN = "7353153409:AAFCy1qUjxzZSgT_XUoOScR1Rjl4URtfzk8";
-const CHANNEL_ID = "1750232012";
+const CHANNEL_ID = "-1002357054147";
 const INITIAL_URLS = [
     "https://www.seguro.bet.br",
     "https://www.seguro.bet.br/cassino/slots/all?btag=2329948",
