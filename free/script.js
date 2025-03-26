@@ -153,7 +153,7 @@ async function getJSessionId() {
         try {
             logger.info(`Tentativa ${attempt + 1}/${maxAttempts} para inicializar o navegador...`);
             browser = await chromium.launch({
-                headless: true,
+                headless: false,
                 args: [
                     '--no-sandbox',
                     '--disable-gpu',
@@ -188,6 +188,7 @@ async function getJSessionId() {
     try {
         // Lista de seletores para o botão "Entrar"
         const enterSelectors = [
+            
             'button.v3-btn:nth-child(1)', // CSS: seletor específico
             'button.v3-btn',
             'xpath=/html/body/div[2]/div[1]/div/div[2]/header/div[2]/div/div/div/div/div[3]/div/div/div/div/div/button[1]',
@@ -309,7 +310,7 @@ async function getJSessionId() {
         await loginButton.click();
         logger.info("Botão de login clicado!");
 
-        await delay(5000);
+        await delay(10000);
 
         // Acessa a página do jogo
         logger.info(`Acessando ${GAME_URL}...`);

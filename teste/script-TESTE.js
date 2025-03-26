@@ -322,7 +322,7 @@ async function getJSessionId() {
         await loginButton.click();
         logger.info("Botão de login clicado!");
 
-        await delay(5000);
+        await delay(10000);
 
         logger.info(`Acessando ${GAME_URL}...`);
         await page.goto(GAME_URL, { waitUntil: 'networkidle', timeout: 90000 });
