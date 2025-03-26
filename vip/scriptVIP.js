@@ -17,7 +17,7 @@ const INITIAL_URLS = [
 const GAME_URL = "https://www.seguro.bet.br/cassino/slots/320/320/pragmatic-play-live/56977-420031975-treasure-island";
 const JSON_URL = "https://games.pragmaticplaylive.net/api/ui/stats?JSESSIONID={}&tableId=a10megasicbaca10&noOfGames=500";
 const ERROR_MESSAGE_COOLDOWN = 300 * 1000; // 5 minutos
-const JSESSIONID_UPDATE_INTERVAL = 2 * 60 * 1000; // 2 minutos
+const JSESSIONID_UPDATE_INTERVAL = 5 * 60 * 1000; // 2 minutos
 
 // Configuração de logging
 const logger = winston.createLogger({
