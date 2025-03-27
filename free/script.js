@@ -153,7 +153,7 @@ async function getJSessionId() {
         try {
             logger.info(`Tentativa ${attempt + 1}/${maxAttempts} para inicializar o navegador...`);
             browser = await chromium.launch({
-                headless: true,
+                headless: false,
                 args: [
                     '--no-sandbox',
                     '--disable-gpu',

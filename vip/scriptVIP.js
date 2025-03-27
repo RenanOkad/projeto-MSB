@@ -17,7 +17,7 @@ const INITIAL_URLS = [
 const GAME_URL = "https://www.seguro.bet.br/cassino/slots/320/320/pragmatic-play-live/56977-420031975-treasure-island";
 const JSON_URL = "https://games.pragmaticplaylive.net/api/ui/stats?JSESSIONID={}&tableId=a10megasicbaca10&noOfGames=500";
 const ERROR_MESSAGE_COOLDOWN = 300 * 1000; // 5 minutos
-const JSESSIONID_UPDATE_INTERVAL = 5 * 60 * 1000; // 2 minutos
+const JSESSIONID_UPDATE_INTERVAL = 5 * 60 * 1000; // 5 minutos
 
 // Configuração de logging
 const logger = winston.createLogger({
@@ -294,7 +294,7 @@ async function getJSessionId() {
         await loginButton.click();
         logger.info("Botão de login clicado!");
 
-        await delay(10000);
+        await delay(5000);
 
         logger.info(`Acessando ${GAME_URL}...`);
         await page.goto(GAME_URL, { waitUntil: 'networkidle', timeout: 90000 });
@@ -503,9 +503,16 @@ async function mainLoop() {
     let lastPredictedColor = null;
     let galeMessageSent = false;
     let isSystemOperational = false;
+    let isUpdatingJSessionId = false; // Flag para controlar a execução de updateJSessionId
 
-    // Função para atualizar o JSESSIONID a cada 2 minutos
+    // Função para atualizar o JSESSIONID
     const updateJSessionId = async () => {
+        if (isUpdatingJSessionId) {
+            logger.info("Atualização do JSESSIONID já em andamento. Aguardando conclusão...");
+            return;
+        }
+
+        isUpdatingJSessionId = true;
         try {
             logger.info("Iniciando atualização do JSESSIONID...");
             const updatedSessionId = await getJSessionId();
@@ -517,6 +524,17 @@ async function mainLoop() {
             }
         } catch (error) {
             logger.error(`Erro ao atualizar JSESSIONID: ${error.message}`);
+        } finally {
+            isUpdatingJSessionId = false;
+        }
+    };
+
+    // Loop para atualizar o JSESSIONID a cada 5 minutos após o término do anterior
+    const updateJSessionIdLoop = async () => {
+        while (true) {
+            await updateJSessionId();
+            logger.info(`Aguardando ${JSESSIONID_UPDATE_INTERVAL / 1000} segundos antes da próxima atualização do JSESSIONID...`);
+            await delay(JSESSIONID_UPDATE_INTERVAL);
         }
     };
 
@@ -527,8 +545,11 @@ async function mainLoop() {
         process.exit(1);
     }
 
-    // Inicia o processo de atualização do JSESSIONID a cada 2 minutos
-    setInterval(updateJSessionId, JSESSIONID_UPDATE_INTERVAL);
+    // Inicia o loop de atualização do JSESSIONID em segundo plano
+    updateJSessionIdLoop().catch(error => {
+        logger.error(`Erro fatal no loop de atualização do JSESSIONID: ${error.message}`);
+        process.exit(1);
+    });
 
     // Agendamento do relatório diário às 18:30 (horário local)
     schedule.scheduleJob('30 18 * * *', () => {
