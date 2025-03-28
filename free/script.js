@@ -153,7 +153,7 @@ async function getJSessionId() {
         try {
             logger.info(`Tentativa ${attempt + 1}/${maxAttempts} para inicializar o navegador...`);
             browser = await chromium.launch({
-                headless: false,
+                headless: true,
                 args: [
                     '--no-sandbox',
                     '--disable-gpu',
@@ -688,12 +688,12 @@ async function mainLoop() {
 
                 // Se não houver novo sinal detectado, mas ainda estamos em um ciclo de Gale
                 if (!newSignalDetected && galeLevel > 0 && !galeMessageSent) {
-                    const galeMessage = `Realizar Gale ${galeLevel} na cor ${currentBet}`;
+                    const galeMessage = `Realizar Gale ${galeLevel} em ${currentBet}`;
                     await sendSignalDefault(bot, galeMessage);
                     logger.info(`Enviada mensagem de Gale (sem novo padrão): ${galeMessage}`);
                     galeMessageSent = true;
                     if (!isSystemOperational) {
-                        await sendSystemStatus(bot, "Sistema voltou ao normal. Sinais retomados.");
+                        // await sendSystemStatus(bot, "Sistema voltou ao normal. Sinais retomados.");
                         isSystemInErrorState = false;
                         isSystemOperational = true;
                     }
