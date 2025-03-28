@@ -153,7 +153,7 @@ async function getJSessionId() {
         try {
             logger.info(`Tentativa ${attempt + 1}/${maxAttempts} para inicializar o navegador...`);
             browser = await chromium.launch({
-                headless: true,
+                headless: false,
                 args: [
                     '--no-sandbox',
                     '--disable-gpu',
@@ -188,7 +188,7 @@ async function getJSessionId() {
     try {
         // Lista de seletores para o botão "Entrar"
         const enterSelectors = [
-            
+        
             'button.v3-btn:nth-child(1)', // CSS: seletor específico
             'button.v3-btn',
             'xpath=/html/body/div[2]/div[1]/div/div[2]/header/div[2]/div/div/div/div/div[3]/div/div/div/div/div/button[1]',
@@ -233,6 +233,8 @@ async function getJSessionId() {
         // Aceita os cookies
         logger.info("Tentando aceitar os cookies...");
         const cookieSelectors = [
+            'div.customModal div.modal__body button.v3-btn.v3-btn-primary.v3-btn-lg.x-button',// Novo seletor adicionado
+            'xpath=/html/body/div[7]/div/div/div/div[3]/div/button[2]',
             '#btn-sim', // CSS: seletor por ID do botão de cookies
             'xpath=/html/body/div[5]/div/button[2]',
             'button:has-text("Aceitar")'

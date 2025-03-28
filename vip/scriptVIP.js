@@ -222,6 +222,7 @@ async function getJSessionId() {
 
         logger.info("Tentando aceitar os cookies...");
         const cookieSelectors = [
+            'div.customModal div.modal__body button.v3-btn.v3-btn-primary.v3-btn-lg.x-button',// Novo seletor adicionado
             '#btn-sim',
             'xpath=/html/body/div[5]/div/button[2]',
             'button:has-text("Aceitar")'
