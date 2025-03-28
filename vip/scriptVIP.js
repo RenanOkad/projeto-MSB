@@ -497,12 +497,10 @@ async function mainLoop() {
     let patterns = null;
     let galeLevel = 0;
     const maxGale = 2;
-    let currentBet = null;
     let lastGameId = null;
-    let lastSignal = null;
-    let lastPredictedColor = null;
     let isSystemOperational = false;
     let isUpdatingJSessionId = false; // Flag para controlar a execução de updateJSessionId
+    let activeSignal = null; // Armazena o sinal ativo (cor, nível de Gale, gameId)
 
     // Função para atualizar o JSESSIONID
     const updateJSessionId = async () => {
@@ -630,14 +628,20 @@ async function mainLoop() {
             } else if (latestGameId !== lastGameId) {
                 logger.info(`Nova jogada detectada: gameId ${latestGameId}`);
 
-                // Verifica o resultado da aposta anterior (se houver)
-                if (currentBet) {
+                // Atualiza o histórico e os padrões
+                history = newHistory;
+                patterns = buildPatterns(history);
+                lastGameId = latestGameId;
+
+                // Verifica o resultado do sinal ativo, se houver
+                if (activeSignal) {
                     const result = latestGame.result;
-                    if (result === currentBet || result === "TIE") {
+                    if (result === activeSignal.bet || result === "TIE") {
+                        // Vitória ou TIE
                         if (result === "TIE") {
                             await sendSignalDefault(bot, "✅ GANHAMOS em TIE!");
                         } else {
-                            await sendSignalDefault(bot, `✅ GANHAMOS em ${currentBet}!`);
+                            await sendSignalDefault(bot, `✅ GANHAMOS em ${activeSignal.bet}!`);
                         }
                         if (galeLevel === 0) {
                             stats.winsInitial++;
@@ -648,9 +652,9 @@ async function mainLoop() {
                         logger.info(`Vitória registrada: Initial=${stats.winsInitial}, Gale1=${stats.winsGale1}, Gale2=${stats.winsGale2}`);
                         saveStats({ ...stats, lastResetDate, weeklyStats });
                         galeLevel = 0;
-                        currentBet = null;
-                        lastSignal = null;
+                        activeSignal = null;
                     } else {
+                        // Perda (Red)
                         galeLevel++;
                         if (galeLevel > maxGale) {
                             await sendSignalDefault(bot, `❌ PERDEMOS após ${maxGale} gales. Padrão quebrado, segue o game e aguardando novo padrão...`);
@@ -659,52 +663,51 @@ async function mainLoop() {
                             logger.info(`Perda registrada: Losses=${stats.losses}`);
                             saveStats({ ...stats, lastResetDate, weeklyStats });
                             galeLevel = 0;
-                            currentBet = null;
-                            lastSignal = null;
-                        }
-                    }
-                }
-
-                // Atualiza o histórico e os padrões
-                history = newHistory;
-                patterns = buildPatterns(history);
-                lastGameId = latestGameId;
-
-                // Verifica padrões para diferentes tamanhos de sequência
-                let newSignalDetected = false;
-                for (let seqLength = 4; seqLength <= 9; seqLength++) {
-                    if (history.length < seqLength) continue;
-
-                    const currentSequence = history.slice(0, seqLength).reverse().map(game => game.result);
-                    const [predictedColor, confidence, occurrences, detectedSequence] = predictNext(currentSequence, patterns);
-
-                    if (predictedColor && galeLevel <= maxGale) {
-                        currentBet = predictedColor;
-                        lastPredictedColor = predictedColor;
-                        let signal;
-                        if (galeLevel === 1) {
-                            signal = `🚨 Padrão detectado: ${detectedSequence.join(', ')}\nAPOSTE ${currentBet} (Gale 1 com proteção no TIE)\nConfiança: ${(confidence * 100).toFixed(2)}%`;
-                        } else if (galeLevel === 2) {
-                            signal = `🚨 Padrão detectado: ${detectedSequence.join(', ')}\nAPOSTE ${currentBet} (Gale 2 com proteção no TIE)\nConfiança: ${(confidence * 100).toFixed(2)}%`;
+                            activeSignal = null;
                         } else {
-                            signal = `🚨 Padrão detectado: ${detectedSequence.join(', ')}\nAPOSTE ${currentBet} (Aposta Inicial com proteção no TIE)\nConfiança: ${(confidence * 100).toFixed(2)}%`;
+                            // Não envia sinal de Gale imediatamente; aguarda um novo padrão
+                            activeSignal = null; // Limpa o sinal ativo para aguardar um novo padrão
                         }
-
-                        await sendSignalDefault(bot, signal);
-                        lastSignal = signal;
-                        newSignalDetected = true;
-                        if (!isSystemOperational) {
-                            isSystemInErrorState = false;
-                            isSystemOperational = true;
-                        }
-                        break;
                     }
                 }
 
-                // Se não houver um novo padrão detectado, aguarda a próxima jogada
-                if (!newSignalDetected) {
-                    logger.info("Nenhum padrão detectado. Aguardando próximo padrão...");
-                    await delay(5000);
+                // Se não houver sinal ativo, procura um novo padrão
+                if (!activeSignal) {
+                    let newSignalDetected = false;
+                    for (let seqLength = 4; seqLength <= 9; seqLength++) {
+                        if (history.length < seqLength) continue;
+
+                        const currentSequence = history.slice(0, seqLength).reverse().map(game => game.result);
+                        const [predictedColor, confidence, occurrences, detectedSequence] = predictNext(currentSequence, patterns);
+
+                        if (predictedColor && galeLevel <= maxGale) {
+                            let signal;
+                            if (galeLevel === 1) {
+                                signal = `🚨 Padrão detectado: ${detectedSequence.join(', ')}\nAPOSTE ${predictedColor} (Gale 1 com proteção no TIE)\nConfiança: ${(confidence * 100).toFixed(2)}%`;
+                            } else if (galeLevel === 2) {
+                                signal = `🚨 Padrão detectado: ${detectedSequence.join(', ')}\nAPOSTE ${predictedColor} (Gale 2 com proteção no TIE)\nConfiança: ${(confidence * 100).toFixed(2)}%`;
+                            } else {
+                                signal = `🚨 Padrão detectado: ${detectedSequence.join(', ')}\nAPOSTE ${predictedColor} (Aposta Inicial com proteção no TIE)\nConfiança: ${(confidence * 100).toFixed(2)}%`;
+                            }
+
+                            await sendSignalDefault(bot, signal);
+                            activeSignal = {
+                                bet: predictedColor,
+                                galeLevel: galeLevel,
+                                gameId: latestGameId
+                            };
+                            newSignalDetected = true;
+                            if (!isSystemOperational) {
+                                isSystemInErrorState = false;
+                                isSystemOperational = true;
+                            }
+                            break;
+                        }
+                    }
+
+                    if (!newSignalDetected) {
+                        logger.info("Nenhum padrão detectado. Aguardando próximo jogo...");
+                    }
                 }
             } else {
                 logger.info(`Nenhuma nova jogada. Último gameId: ${lastGameId}`);
