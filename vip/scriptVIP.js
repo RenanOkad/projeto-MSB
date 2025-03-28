@@ -183,7 +183,7 @@ async function getJSessionId() {
         const enterSelectors = [
             'button.v3-btn:nth-child(1)',
             'button.v3-btn',
-            'xpath=/html/body/div[2]/div[1]/div/div[2]/header/div[2]/[div/div/div/div/div[3]/div/div/div/div/div/button[1]',
+            'xpath=/html/body/div[2]/div[1]/div/div[2]/header/div[2]/div/div/div/div/div[3]/div/div/div/div/div/button[1]',
             'button:has-text("Entrar")'
         ];
 
@@ -632,7 +632,6 @@ async function mainLoop() {
             } else if (latestGameId !== lastGameId) {
                 logger.info(`Nova jogada detectada: gameId ${latestGameId}`);
                 galeMessageSent = false;
-                patternBrokenMessageSent = false; // Reseta a flag no início de uma nova jogada
 
                 // Verifica o resultado da aposta anterior (se houver)
                 if (currentBet) {
@@ -654,6 +653,7 @@ async function mainLoop() {
                         galeLevel = 0;
                         currentBet = null;
                         lastSignal = null;
+                        patternBrokenMessageSent = false; // Reseta a flag após uma vitória
                     } else {
                         galeLevel++;
                         if (galeLevel > maxGale) {
@@ -665,6 +665,7 @@ async function mainLoop() {
                             galeLevel = 0;
                             currentBet = null;
                             lastSignal = null;
+                            patternBrokenMessageSent = false; // Reseta a flag após o máximo de gales
                         }
                     }
                 }
@@ -698,6 +699,7 @@ async function mainLoop() {
                         lastSignal = signal;
                         newSignalDetected = true;
                         galeMessageSent = true;
+                        patternBrokenMessageSent = false; // Reseta a flag quando um novo sinal é enviado
                         if (!isSystemOperational) {
                             isSystemInErrorState = false;
                             isSystemOperational = true;
@@ -706,7 +708,7 @@ async function mainLoop() {
                     }
                 }
 
-                // Se não houver novo sinal detectado e estamos em um ciclo de Gale
+                // Se estamos em um ciclo de Gale e não há novo sinal detectado
                 if (!newSignalDetected && galeLevel > 0 && !galeMessageSent) {
                     if (!patternBrokenMessageSent) {
                         const galeMessage = `Padrão quebrado, buscando novo padrão para o Gale ${galeLevel}`;
