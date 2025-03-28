@@ -183,7 +183,7 @@ async function getJSessionId() {
         const enterSelectors = [
             'button.v3-btn:nth-child(1)',
             'button.v3-btn',
-            'xpath=/html/body/div[2]/div[1]/div/div[2]/header/div[2]/div/div/div/div/div[3]/div/div/div/div/div/button[1]',
+            'xpath=/html/body/div[2]/div[1]/div/div[2]/header/div[2]/[div/div/div/div/div[3]/div/div/div/div/div/button[1]',
             'button:has-text("Entrar")'
         ];
 
@@ -504,6 +504,7 @@ async function mainLoop() {
     let galeMessageSent = false;
     let isSystemOperational = false;
     let isUpdatingJSessionId = false; // Flag para controlar a execução de updateJSessionId
+    let patternBrokenMessageSent = false; // Flag para evitar spam da mensagem "Padrão quebrado"
 
     // Função para atualizar o JSESSIONID
     const updateJSessionId = async () => {
@@ -631,7 +632,9 @@ async function mainLoop() {
             } else if (latestGameId !== lastGameId) {
                 logger.info(`Nova jogada detectada: gameId ${latestGameId}`);
                 galeMessageSent = false;
+                patternBrokenMessageSent = false; // Reseta a flag no início de uma nova jogada
 
+                // Verifica o resultado da aposta anterior (se houver)
                 if (currentBet) {
                     const result = latestGame.result;
                     if (result === currentBet || result === "TIE") {
@@ -666,10 +669,12 @@ async function mainLoop() {
                     }
                 }
 
+                // Atualiza o histórico e os padrões
                 history = newHistory;
                 patterns = buildPatterns(history);
                 lastGameId = latestGameId;
 
+                // Verifica padrões para diferentes tamanhos de sequência
                 let newSignalDetected = false;
                 for (let seqLength = 4; seqLength <= 9; seqLength++) {
                     if (history.length < seqLength) continue;
@@ -701,16 +706,21 @@ async function mainLoop() {
                     }
                 }
 
+                // Se não houver novo sinal detectado e estamos em um ciclo de Gale
                 if (!newSignalDetected && galeLevel > 0 && !galeMessageSent) {
-                    const galeMessage = `Realizar Gale ${galeLevel} na cor ${currentBet}`;
-                    await sendSignalDefault(bot, galeMessage);
-                    logger.info(`Enviada mensagem de Gale (sem novo padrão): ${galeMessage}`);
-                    galeMessageSent = true;
-                    if (!isSystemOperational) {
-                        await sendSystemStatus(bot, "Sistema voltou ao normal. Sinais retomados.");
-                        isSystemInErrorState = false;
-                        isSystemOperational = true;
+                    if (!patternBrokenMessageSent) {
+                        const galeMessage = `Padrão quebrado, buscando novo padrão para o Gale ${galeLevel}`;
+                        await sendSignalDefault(bot, galeMessage);
+                        logger.info(`Enviada mensagem de padrão quebrado: ${galeMessage}`);
+                        patternBrokenMessageSent = true;
                     }
+                    // Não envia sinal de Gale até que um novo padrão seja detectado
+                    continue;
+                }
+
+                // Se não estamos em um ciclo de Gale e não há sinal detectado, apenas aguarda a próxima jogada
+                if (!newSignalDetected && galeLevel === 0) {
+                    logger.info("Nenhum padrão detectado para aposta inicial. Aguardando...");
                 }
             } else {
                 logger.info(`Nenhuma nova jogada. Último gameId: ${lastGameId}`);
