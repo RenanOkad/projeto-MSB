@@ -45,7 +45,6 @@ function loadStats() {
             return {
                 winsInitial: parsed.winsInitial || 0,
                 winsGale1: parsed.winsGale1 || 0,
-                winsGale2: parsed.winsGale2 || 0,
                 losses: parsed.losses || 0,
                 lastResetDate: parsed.lastResetDate || new Date().toDateString(),
                 weeklyStats: parsed.weeklyStats || { wins: 0, losses: 0, initialWins: 0, startDate: new Date().toISOString() }
@@ -57,7 +56,6 @@ function loadStats() {
     return {
         winsInitial: 0,
         winsGale1: 0,
-        winsGale2: 0,
         losses: 0,
         lastResetDate: new Date().toDateString(),
         weeklyStats: { wins: 0, losses: 0, initialWins: 0, startDate: new Date().toISOString() }
@@ -333,11 +331,11 @@ async function getJSessionId() {
 
         logger.info("Tentando clicar no botão de login...");
         const loginSelectors = [
-            'button[type="submit"]',
-            'button:has-text("Entrar")',
             'xpath=/html/body/div[12]/div/div/div/div/div/form/button',
             'xpath=/html/body/div[11]/div/div/div/div/div/form/button',
-            'xpath=/html/body/div[13]/div/div/div/div/div/form/button'
+            'xpath=/html/body/div[13]/div/div/div/div/div/form/button',
+            'button[type="submit"]',
+            'button:has-text("Entrar")'
         ];
         const loginButton = await waitForElement(page, loginSelectors, 30000);
         await loginButton.click();
@@ -483,7 +481,7 @@ async function sendSystemStatus(bot, message) {
 // Função para enviar e fixar o relatório diário
 async function sendDailyReport(bot) {
     const currentDate = new Date().toDateString();
-    const totalWins = stats.winsInitial + stats.winsGale1 + stats.winsGale2;
+    const totalWins = stats.winsInitial + stats.winsGale1;
     const totalBets = totalWins + stats.losses;
     const winRate = totalBets > 0 ? (totalWins / totalBets * 100).toFixed(2) : 0;
 
@@ -503,7 +501,6 @@ async function sendDailyReport(bot) {
 📊 **Relatório Diário - ${new Date().toLocaleDateString('pt-BR')}**
 - Vitórias (Aposta Inicial): ${stats.winsInitial}
 - Vitórias (Gale 1): ${stats.winsGale1}
-- Vitórias (Gale 2): ${stats.winsGale2}
 - Perdas: ${stats.losses}
 - Total de Vitórias: ${totalWins}
 - Taxa de Acerto: ${winRate}%
@@ -519,7 +516,7 @@ Curtiu os sinais? Vamos lucrar juntos 🔥🔥🚀🚀
         logger.info(`Relatório diário enviado e fixado. Message ID: ${messageId}`);
 
         if (currentDate !== lastResetDate) {
-            stats = { winsInitial: 0, winsGale1: 0, winsGale2: 0, losses: 0 };
+            stats = { winsInitial: 0, winsGale1: 0, losses: 0 };
             lastResetDate = currentDate;
             saveStats({ ...stats, lastResetDate, weeklyStats });
         }
@@ -580,7 +577,7 @@ async function mainLoop() {
     let history = [];
     let patterns = null;
     let galeLevel = 0;
-    const maxGale = 2;
+    const maxGale = 1; // Limitado a Gale 1
     let lastGameId = null;
     let isSystemOperational = false;
     let isUpdatingJSessionId = false; // Flag para controlar a execução de updateJSessionId
@@ -747,17 +744,9 @@ async function mainLoop() {
                             winTimes[timeRange].total++;
                             winTimes[timeRange].winRate = (winTimes[timeRange].wins / winTimes[timeRange].total) * 100;
                             winTimes[timeRange].lastSeen = currentTime.toISOString();
-                        } else if (galeLevel === 2) {
-                            stats.winsGale2++;
-                            weeklyStats.wins++;
-                            if (!winTimes[timeRange]) winTimes[timeRange] = { wins: 0, total: 0, winRate: 0, lastSeen: currentTime.toISOString() };
-                            winTimes[timeRange].wins++;
-                            winTimes[timeRange].total++;
-                            winTimes[timeRange].winRate = (winTimes[timeRange].wins / winTimes[timeRange].total) * 100;
-                            winTimes[timeRange].lastSeen = currentTime.toISOString();
                         }
                         weeklyStats.wins++;
-                        logger.info(`Vitória registrada: Initial=${stats.winsInitial}, Gale1=${stats.winsGale1}, Gale2=${stats.winsGale2}`);
+                        logger.info(`Vitória registrada: Initial=${stats.winsInitial}, Gale1=${stats.winsGale1}`);
                         saveStats({ ...stats, lastResetDate, weeklyStats });
                         saveWinTimes(winTimes);
                         galeLevel = 0;
@@ -770,8 +759,9 @@ async function mainLoop() {
                         winTimes[timeRange].winRate = (winTimes[timeRange].wins / winTimes[timeRange].total) * 100;
                         winTimes[timeRange].lastSeen = currentTime.toISOString();
                         saveWinTimes(winTimes);
+
                         if (galeLevel > maxGale) {
-                            await sendSignalDefault(bot, `❌ PERDEMOS após ${maxGale} gales. Padrão quebrado, segue o game e aguardando novo padrão...`);
+                            await sendSignalDefault(bot, `❌ PERDEMOS após ${maxGale} gale${maxGale > 1 ? 's' : ''}. Padrão quebrado, segue o game e aguardando novo padrão...`);
                             stats.losses++;
                             weeklyStats.losses++;
                             logger.info(`Perda registrada: Losses=${stats.losses}`);
@@ -779,7 +769,12 @@ async function mainLoop() {
                             galeLevel = 0;
                             activeSignal = null;
                         } else {
-                            // Não envia sinal de Gale imediatamente; aguarda um novo padrão
+                            // Aguarda 2 segundos e verifica se um novo sinal foi detectado
+                            await delay(2000);
+                            if (!activeSignal) {
+                                const nextGale = galeLevel === 1 ? "Gale 1" : "Gale 2";
+                                await sendSignalDefault(bot, `⚠️ Sistema analisando nova oportunidade para ${nextGale}...`);
+                            }
                             activeSignal = null; // Limpa o sinal ativo para aguardar um novo padrão
                         }
                     }
@@ -814,14 +809,12 @@ async function mainLoop() {
                             let signal;
                             if (galeLevel === 1) {
                                 signal = `🚨 Padrão detectado: ${emojiSequence}\nAPOSTE ${resultToEmoji(predictedColor)} ${predictedColor} (Gale 1 com proteção no TIE)\nConfiança: ${(confidence * 100).toFixed(2)}%`;
-                            } else if (galeLevel === 2) {
-                                signal = `🚨 Padrão detectado: ${emojiSequence}\nAPOSTE ${resultToEmoji(predictedColor)} ${predictedColor} (Gale 2 com proteção no TIE)\nConfiança: ${(confidence * 100).toFixed(2)}%`;
                             } else {
                                 signal = `🚨 Padrão detectado: ${emojiSequence}\nAPOSTE ${resultToEmoji(predictedColor)} ${predictedColor} (Aposta Inicial com proteção no TIE)\nConfiança: ${(confidence * 100).toFixed(2)}%`;
                             }
 
                             if (confidence > 0.90) {
-                                signal = `🌟 OPORTUNIDADE EXCEPCIONAL! ${signal}\nConfiança acima de 90%! Aproveite esta chance rara!`;
+                                signal = `🌟 OPORTUNIDADE COM CONFIANÇA ALTA!\n${signal}`;
                             }
 
                             await sendSignalDefault(bot, signal);
