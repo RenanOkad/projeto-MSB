@@ -333,11 +333,11 @@ async function getJSessionId() {
 
         logger.info("Tentando clicar no botão de login...");
         const loginSelectors = [
+            'button[type="submit"]',
+            'button:has-text("Entrar")',
             'xpath=/html/body/div[12]/div/div/div/div/div/form/button',
             'xpath=/html/body/div[11]/div/div/div/div/div/form/button',
-            'xpath=/html/body/div[13]/div/div/div/div/div/form/button',
-            'button[type="submit"]',
-            'button:has-text("Entrar")'
+            'xpath=/html/body/div[13]/div/div/div/div/div/form/button'
         ];
         const loginButton = await waitForElement(page, loginSelectors, 30000);
         await loginButton.click();
