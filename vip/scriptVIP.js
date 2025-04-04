@@ -62,7 +62,7 @@ function loadStats() {
     };
 }
 
-// Função para salvar os contadores no arquivo
+//Função para salvar os contadores no arquivo
 function saveStats(stats) {
     try {
         fs.writeFileSync('stats.json', JSON.stringify(stats, null, 2));
@@ -408,8 +408,8 @@ async function fetchGameHistory(sessionId) {
     }
 }
 
-// Função para construir padrões
-function buildPatterns(history, minSeq = 4, maxSeq = 9) {
+// Função para construir padrões de cores
+function buildColorPatterns(history, minSeq = 4, maxSeq = 9) {
     const patterns = {};
     for (let seqLength = minSeq; seqLength <= maxSeq; seqLength++) {
         for (let i = 0; i < history.length - seqLength; i++) {
@@ -424,8 +424,8 @@ function buildPatterns(history, minSeq = 4, maxSeq = 9) {
     return patterns;
 }
 
-// Função para prever o próximo resultado
-function predictNext(sequence, patterns, minConfidence = 0.75, minOccurrences = 4) {
+// Função para prever o próximo resultado com base em cores
+function predictNextColor(sequence, patterns, minConfidence = 0.75, minOccurrences = 5) {
     const sequenceKey = sequence.join(',');
     if (!patterns[sequenceKey]) return [null, null, null, null];
 
@@ -447,6 +447,241 @@ function predictNext(sequence, patterns, minConfidence = 0.75, minOccurrences = 
     const requiredConfidence = (seqLength >= 8) ? 0.85 : minConfidence;
 
     return confidence >= requiredConfidence ? [bestResult, confidence, total, detectedSequence] : [null, null, null, null];
+}
+
+// Função para construir padrões de dados
+function buildDicePatterns(history, seqLength = 4) {
+    const patterns = {};
+    for (let i = 0; i < history.length - seqLength; i++) {
+        const sequence = history.slice(i, i + seqLength).map(game => [game.p1, game.p2, game.b1, game.b2].join(','));
+        const nextResult = history[i + seqLength].result;
+        const sequenceKey = sequence.join(';');
+
+        if (!patterns[sequenceKey]) patterns[sequenceKey] = { results: {}, sequence: sequence };
+        patterns[sequenceKey].results[nextResult] = (patterns[sequenceKey].results[nextResult] || 0) + 1;
+    }
+    return patterns;
+}
+
+// Função para prever o próximo resultado com base em dados
+function predictNextDice(sequence, patterns, minConfidence = 0.75, minOccurrences = 5) {
+    const sequenceKey = sequence.join(';');
+    if (!patterns[sequenceKey]) return [null, null, null, null];
+
+    const resultCounts = patterns[sequenceKey].results;
+    const total = Object.values(resultCounts).reduce((sum, count) => sum + count, 0);
+
+    if (total < minOccurrences) return [null, null, null, null];
+
+    const probabilities = {};
+    for (const result in resultCounts) {
+        probabilities[result] = resultCounts[result] / total;
+    }
+
+    const bestResult = Object.keys(probabilities).reduce((a, b) => probabilities[a] > probabilities[b] ? a : b);
+    const confidence = probabilities[bestResult];
+    const detectedSequence = patterns[sequenceKey].sequence;
+
+    return confidence >= minConfidence ? [bestResult, confidence, total, detectedSequence] : [null, null, null, null];
+}
+
+// Função para construir padrões baseados em eventos (firstDouble, secondDouble, triple)
+function buildEventPatterns(history) {
+    const patterns = {
+        afterFirstDouble: { count: 0, results: {} },
+        afterFirstAndSecondDouble: { results: {} },
+        afterAlternatingDoubles: { results: {} },
+        afterTriple: { results: {} },
+        afterTripleXGames: { results: {} }
+    };
+
+    let firstDoubleCount = 0;
+    let lastEvent = null;
+    let triplePositions = [];
+
+    for (let i = 0; i < history.length; i++) {
+        const game = history[i];
+        const nextResult = i + 1 < history.length ? history[i + 1].result : null;
+
+        // Após X firstDouble (ex.: após 3 firstDouble)
+        if (game.firstDouble) {
+            firstDoubleCount++;
+            if (firstDoubleCount === 3 && nextResult) {
+                patterns.afterFirstDouble.results[nextResult] = (patterns.afterFirstDouble.results[nextResult] || 0) + 1;
+                firstDoubleCount = 0; // Reseta após atingir o limite
+            }
+        }
+
+        // Após firstDouble e secondDouble no mesmo jogo
+        if (game.firstDouble && game.secondDouble && nextResult) {
+            patterns.afterFirstAndSecondDouble.results[nextResult] = (patterns.afterFirstAndSecondDouble.results[nextResult] || 0) + 1;
+        }
+
+        // Sequência alternada de firstDouble e secondDouble
+        if (game.firstDouble && !game.secondDouble) {
+            if (lastEvent === 'secondDouble' && nextResult) {
+                patterns.afterAlternatingDoubles.results[nextResult] = (patterns.afterAlternatingDoubles.results[nextResult] || 0) + 1;
+            }
+            lastEvent = 'firstDouble';
+        } else if (game.secondDouble && !game.firstDouble) {
+            if (lastEvent === 'firstDouble' && nextResult) {
+                patterns.afterAlternatingDoubles.results[nextResult] = (patterns.afterAlternatingDoubles.results[nextResult] || 0) + 1;
+            }
+            lastEvent = 'secondDouble';
+        } else {
+            lastEvent = null;
+        }
+
+        // Após um triple
+        if (game.triple && nextResult) {
+            patterns.afterTriple.results[nextResult] = (patterns.afterTriple.results[nextResult] || 0) + 1;
+            triplePositions.push(i);
+        }
+    }
+
+    // Após X jogos de um triple (ex.: 3 jogos após)
+    const xGamesAfterTriple = 3;
+    for (const pos of triplePositions) {
+        const targetPos = pos + xGamesAfterTriple;
+        if (targetPos < history.length) {
+            const nextResult = history[targetPos].result;
+            patterns.afterTripleXGames.results[nextResult] = (patterns.afterTripleXGames.results[nextResult] || 0) + 1;
+        }
+    }
+
+    return patterns;
+}
+
+// Função para prever o próximo resultado com base em eventos
+function predictNextEvent(history, eventPatterns, minConfidence = 0.75, minOccurrences = 5) {
+    let bestResult = null;
+    let confidence = 0;
+    let total = 0;
+    let patternType = null;
+
+    const latestGame = history[0];
+
+    // Após X firstDouble
+    let firstDoubleCount = 0;
+    for (let i = 0; i < history.length; i++) {
+        if (history[i].firstDouble) firstDoubleCount++;
+    }
+    if (firstDoubleCount === 3) {
+        const resultCounts = eventPatterns.afterFirstDouble.results;
+        const totalOccurrences = Object.values(resultCounts).reduce((sum, count) => sum + count, 0);
+        if (totalOccurrences >= minOccurrences) {
+            const probabilities = {};
+            for (const result in resultCounts) {
+                probabilities[result] = resultCounts[result] / totalOccurrences;
+            }
+            const predictedResult = Object.keys(probabilities).reduce((a, b) => probabilities[a] > probabilities[b] ? a : b);
+            const predictedConfidence = probabilities[predictedResult];
+            if (predictedConfidence >= minConfidence && predictedConfidence > confidence) {
+                bestResult = predictedResult;
+                confidence = predictedConfidence;
+                total = totalOccurrences;
+                patternType = "Após 3 First Doubles";
+            }
+        }
+    }
+
+    // Após firstDouble e secondDouble
+    if (latestGame.firstDouble && latestGame.secondDouble) {
+        const resultCounts = eventPatterns.afterFirstAndSecondDouble.results;
+        const totalOccurrences = Object.values(resultCounts).reduce((sum, count) => sum + count, 0);
+        if (totalOccurrences >= minOccurrences) {
+            const probabilities = {};
+            for (const result in resultCounts) {
+                probabilities[result] = resultCounts[result] / totalOccurrences;
+            }
+            const predictedResult = Object.keys(probabilities).reduce((a, b) => probabilities[a] > probabilities[b] ? a : b);
+            const predictedConfidence = probabilities[predictedResult];
+            if (predictedConfidence >= minConfidence && predictedConfidence > confidence) {
+                bestResult = predictedResult;
+                confidence = predictedConfidence;
+                total = totalOccurrences;
+                patternType = "Após First e Second Double";
+            }
+        }
+    }
+
+    // Após sequência alternada de firstDouble e secondDouble
+    let lastEvent = null;
+    for (let i = history.length - 1; i >= 0; i--) {
+        if (history[i].firstDouble && !history[i].secondDouble) {
+            lastEvent = 'firstDouble';
+            break;
+        } else if (history[i].secondDouble && !history[i].firstDouble) {
+            lastEvent = 'secondDouble';
+            break;
+        }
+    }
+    if ((latestGame.firstDouble && lastEvent === 'secondDouble') || (latestGame.secondDouble && lastEvent === 'firstDouble')) {
+        const resultCounts = eventPatterns.afterAlternatingDoubles.results;
+        const totalOccurrences = Object.values(resultCounts).reduce((sum, count) => sum + count, 0);
+        if (totalOccurrences >= minOccurrences) {
+            const probabilities = {};
+            for (const result in resultCounts) {
+                probabilities[result] = resultCounts[result] / totalOccurrences;
+            }
+            const predictedResult = Object.keys(probabilities).reduce((a, b) => probabilities[a] > probabilities[b] ? a : b);
+            const predictedConfidence = probabilities[predictedResult];
+            if (predictedConfidence >= minConfidence && predictedConfidence > confidence) {
+                bestResult = predictedResult;
+                confidence = predictedConfidence;
+                total = totalOccurrences;
+                patternType = "Após Sequência Alternada de Doubles";
+            }
+        }
+    }
+
+    // Após um triple
+    if (history[1]?.triple) {
+        const resultCounts = eventPatterns.afterTriple.results;
+        const totalOccurrences = Object.values(resultCounts).reduce((sum, count) => sum + count, 0);
+        if (totalOccurrences >= minOccurrences) {
+            const probabilities = {};
+            for (const result in resultCounts) {
+                probabilities[result] = resultCounts[result] / totalOccurrences;
+            }
+            const predictedResult = Object.keys(probabilities).reduce((a, b) => probabilities[a] > probabilities[b] ? a : b);
+            const predictedConfidence = probabilities[predictedResult];
+            if (predictedConfidence >= minConfidence && predictedConfidence > confidence) {
+                bestResult = predictedResult;
+                confidence = predictedConfidence;
+                total = totalOccurrences;
+                patternType = "Após um Triple";
+            }
+        }
+    }
+
+    // Após X jogos de um triple
+    const xGamesAfterTriple = 3;
+    for (let i = 0; i < history.length; i++) {
+        if (history[i].triple) {
+            if (i + xGamesAfterTriple === history.length - 1) {
+                const resultCounts = eventPatterns.afterTripleXGames.results;
+                const totalOccurrences = Object.values(resultCounts).reduce((sum, count) => sum + count, 0);
+                if (totalOccurrences >= minOccurrences) {
+                    const probabilities = {};
+                    for (const result in resultCounts) {
+                        probabilities[result] = resultCounts[result] / totalOccurrences;
+                    }
+                    const predictedResult = Object.keys(probabilities).reduce((a, b) => probabilities[a] > probabilities[b] ? a : b);
+                    const predictedConfidence = probabilities[predictedResult];
+                    if (predictedConfidence >= minConfidence && predictedConfidence > confidence) {
+                        bestResult = predictedResult;
+                        confidence = predictedConfidence;
+                        total = totalOccurrences;
+                        patternType = `Após ${xGamesAfterTriple} Jogos de um Triple`;
+                    }
+                }
+            }
+            break;
+        }
+    }
+
+    return [bestResult, confidence, total, patternType];
 }
 
 // Função para converter resultado em emoji
@@ -575,7 +810,9 @@ async function mainLoop() {
     let sessionId = null; // JSESSIONID atual usado pelo loop principal
     let newSessionId = null; // Novo JSESSIONID sendo obtido em segundo plano
     let history = [];
-    let patterns = null;
+    let colorPatterns = null;
+    let dicePatterns = null;
+    let eventPatterns = null;
     let galeLevel = 0;
     const maxGale = 1; // Limitado a Gale 1
     let lastGameId = null;
@@ -706,13 +943,17 @@ async function mainLoop() {
             if (lastGameId === null) {
                 lastGameId = latestGameId;
                 history = newHistory;
-                patterns = buildPatterns(history);
+                colorPatterns = buildColorPatterns(history);
+                dicePatterns = buildDicePatterns(history);
+                eventPatterns = buildEventPatterns(history);
             } else if (latestGameId !== lastGameId) {
                 logger.info(`Nova jogada detectada: gameId ${latestGameId}`);
 
                 // Atualiza o histórico e os padrões
                 history = newHistory;
-                patterns = buildPatterns(history);
+                colorPatterns = buildColorPatterns(history);
+                dicePatterns = buildDicePatterns(history);
+                eventPatterns = buildEventPatterns(history);
                 lastGameId = latestGameId;
 
                 // Verifica o resultado do sinal ativo, se houver
@@ -798,37 +1039,66 @@ async function mainLoop() {
                 // Se não houver sinal ativo, procura um novo padrão
                 if (!activeSignal) {
                     let newSignalDetected = false;
+                    let bestPrediction = null;
+                    let bestConfidence = 0;
+                    let bestPatternDescription = '';
+
+                    // 1. Padrão de cores
                     for (let seqLength = 4; seqLength <= 9; seqLength++) {
                         if (history.length < seqLength) continue;
 
                         const currentSequence = history.slice(0, seqLength).reverse().map(game => game.result);
-                        const [predictedColor, confidence, occurrences, detectedSequence] = predictNext(currentSequence, patterns);
+                        const [predictedColor, confidence, occurrences, detectedSequence] = predictNextColor(currentSequence, colorPatterns);
 
-                        if (predictedColor && galeLevel <= maxGale) {
-                            const emojiSequence = detectedSequence.map(resultToEmoji).join(', ');
-                            let signal;
-                            if (galeLevel === 1) {
-                                signal = `🚨 Padrão detectado: ${emojiSequence}\nAPOSTE ${resultToEmoji(predictedColor)} ${predictedColor} (Gale 1 com proteção no TIE)\nConfiança: ${(confidence * 100).toFixed(2)}%`;
-                            } else {
-                                signal = `🚨 Padrão detectado: ${emojiSequence}\nAPOSTE ${resultToEmoji(predictedColor)} ${predictedColor} (Aposta Inicial com proteção no TIE)\nConfiança: ${(confidence * 100).toFixed(2)}%`;
-                            }
+                        if (predictedColor && confidence > bestConfidence && galeLevel <= maxGale) {
+                            bestPrediction = predictedColor;
+                            bestConfidence = confidence;
+                            bestPatternDescription = `Padrão de Cores: ${detectedSequence.map(resultToEmoji).join(', ')}`;
+                        }
+                    }
 
-                            if (confidence > 0.90) {
-                                signal = `🌟 OPORTUNIDADE COM CONFIANÇA ALTA!\n${signal}`;
-                            }
+                    // 2. Padrão de dados
+                    if (history.length >= 4) {
+                        const currentDiceSequence = history.slice(0, 4).reverse().map(game => [game.p1, game.p2, game.b1, game.b2].join(','));
+                        const [predictedDiceColor, diceConfidence, diceOccurrences, diceSequence] = predictNextDice(currentDiceSequence, dicePatterns);
+                        if (predictedDiceColor && diceConfidence > bestConfidence && galeLevel <= maxGale) {
+                            bestPrediction = predictedDiceColor;
+                            bestConfidence = diceConfidence;
+                            bestPatternDescription = `Padrão de Dados: ${diceSequence.join('; ')}`;
+                        }
+                    }
 
-                            await sendSignalDefault(bot, signal);
-                            activeSignal = {
-                                bet: predictedColor,
-                                galeLevel: galeLevel,
-                                gameId: latestGameId
-                            };
-                            newSignalDetected = true;
-                            if (!isSystemOperational) {
-                                isSystemInErrorState = false;
-                                isSystemOperational = true;
-                            }
-                            break;
+                    // 3. Padrão de eventos
+                    const [eventColor, eventConfidence, eventOccurrences, eventPatternType] = predictNextEvent(history, eventPatterns);
+                    if (eventColor && eventConfidence > bestConfidence && galeLevel <= maxGale) {
+                        bestPrediction = eventColor;
+                        bestConfidence = eventConfidence;
+                        bestPatternDescription = eventPatternType;
+                    }
+
+                    // Envia o sinal com a melhor previsão
+                    if (bestPrediction) {
+                        let signal;
+                        if (galeLevel === 1) {
+                            signal = `🚨 ${bestPatternDescription}\nAPOSTE ${resultToEmoji(bestPrediction)} ${bestPrediction} (Gale 1 com proteção no TIE)\nConfiança: ${(bestConfidence * 100).toFixed(2)}%`;
+                        } else {
+                            signal = `🚨 ${bestPatternDescription}\nAPOSTE ${resultToEmoji(bestPrediction)} ${bestPrediction} (Aposta Inicial com proteção no TIE)\nConfiança: ${(bestConfidence * 100).toFixed(2)}%`;
+                        }
+
+                        if (bestConfidence > 0.90) {
+                            signal = `🌟 OPORTUNIDADE COM CONFIANÇA ALTA! ${signal}`;
+                        }
+
+                        await sendSignalDefault(bot, signal);
+                        activeSignal = {
+                            bet: bestPrediction,
+                            galeLevel: galeLevel,
+                            gameId: latestGameId
+                        };
+                        newSignalDetected = true;
+                        if (!isSystemOperational) {
+                            isSystemInErrorState = false;
+                            isSystemOperational = true;
                         }
                     }
 
