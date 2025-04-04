@@ -3,23 +3,27 @@ const winston = require('winston');
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const { performance } = require('perf_hooks');
-const { exec } = require('child_process');
-const schedule = require('node-schedule');
-const fs = require('fs');
+const { exec } = require('child_process'); // Adicionado para gerenciar processos do sistema
+const schedule = require('node-schedule'); // Adicionado para agendamento
+const fs = require('fs'); // Adicionado para persistência dos contadores
 
 // Configurações básicas
-const TELEGRAM_TOKEN = "7353153409:AAFCy1qUjxzZSgT_XUoOScR1Rjl4URtfzk8";
-const CHANNEL_ID = "-1002357054147"; // Canal VIP
+const TELEGRAM_TOKEN = "7353153409:AAFCy1qUjxzZSgT_XUoOScR1Rjl4URtfzk8"; // Token do bot do Telegram
+const CHANNEL_ID = "-1002223861805"; // ID ou nome do canal Telegram ID-Bot: 1750232012, ID Grupo: -1002223861805, ID Grupo VIP: -1002357054147
+// Lista de URLs iniciais para tentar encontrar o botão de login
 const INITIAL_URLS = [
     "https://www.seguro.bet.br",
     "https://www.seguro.bet.br/cassino/slots/all?btag=2329948",
+    // Adicione mais URLs aqui no futuro, por exemplo:
+    // "https://www.seguro.bet.br/outra-pagina",
+    // "https://www.seguro.bet.br/nova-entrada"
 ];
 const GAME_URL = "https://www.seguro.bet.br/cassino/slots/320/320/pragmatic-play-live/56977-420031975-treasure-island";
 const JSON_URL = "https://games.pragmaticplaylive.net/api/ui/stats?JSESSIONID={}&tableId=a10megasicbaca10&noOfGames=500";
+const SESSION_REFRESH_INTERVAL = 720 * 1000; // 12 minutos (usado como fallback, mas não será o gatilho principal)
 const ERROR_MESSAGE_COOLDOWN = 300 * 1000; // 5 minutos
-const JSESSIONID_UPDATE_INTERVAL = 5 * 60 * 1000; // 5 minutos
 
-// Configuração de logging
+// Configuração de logging com console e arquivo
 const logger = winston.createLogger({
     level: 'info',
     format: winston.format.combine(
@@ -28,13 +32,13 @@ const logger = winston.createLogger({
     ),
     transports: [
         new winston.transports.File({ filename: 'signal_system.log' }),
-        new winston.transports.Console()
+        new winston.transports.Console() // Adiciona logs no console para Discloud
     ]
 });
 
 // Controle de mensagens de erro
 const lastErrorMessageTime = {};
-let isSystemInErrorState = false;
+let isSystemInErrorState = false; // Flag para controlar o estado de erro e mensagens no Telegram
 
 // Função para carregar os contadores do arquivo
 function loadStats() {
@@ -74,58 +78,10 @@ function saveStats(stats) {
     }
 }
 
-// Função para carregar ou inicializar o arquivo de horários vitoriosos
-function loadWinTimes() {
-    try {
-        if (fs.existsSync('win_times.json')) {
-            const data = fs.readFileSync('win_times.json', 'utf8');
-            return JSON.parse(data);
-        }
-    } catch (error) {
-        logger.error(`Erro ao carregar win_times.json: ${error.message}`);
-    }
-    return {};
-}
-
-// Função para salvar o arquivo de horários vitoriosos
-function saveWinTimes(winTimes) {
-    try {
-        fs.writeFileSync('win_times.json', JSON.stringify(winTimes, null, 2));
-        logger.info('Horários vitoriosos salvos em win_times.json');
-    } catch (error) {
-        logger.error(`Erro ao salvar win_times.json: ${error.message}`);
-    }
-}
-
-// Função para carregar ou inicializar o arquivo de top sequências
-function loadTopSequences() {
-    try {
-        if (fs.existsSync('top_sequences.json')) {
-            const data = fs.readFileSync('top_sequences.json', 'utf8');
-            return JSON.parse(data);
-        }
-    } catch (error) {
-        logger.error(`Erro ao carregar top_sequences.json: ${error.message}`);
-    }
-    return {};
-}
-
-// Função para salvar o arquivo de top sequências
-function saveTopSequences(topSequences) {
-    try {
-        fs.writeFileSync('top_sequences.json', JSON.stringify(topSequences, null, 2));
-        logger.info('Top sequências salvos em top_sequences.json');
-    } catch (error) {
-        logger.error(`Erro ao salvar top_sequences.json: ${error.message}`);
-    }
-}
-
 // Carrega os contadores na inicialização
 let stats = loadStats();
 let lastResetDate = stats.lastResetDate;
 let weeklyStats = stats.weeklyStats;
-let winTimes = loadWinTimes();
-let topSequences = loadTopSequences();
 
 function canSendErrorMessage(message) {
     const currentTime = Date.now();
@@ -166,9 +122,10 @@ async function waitForElement(page, selectors, timeout = 30000) {
     throw new Error(`Nenhum dos seletores fornecidos foi encontrado: ${selectors.join(', ')}`);
 }
 
-// Função para matar processos Chrome pendentes
+// Função para matar processos Chrome pendentes (substituindo psutil com child_process)
 async function killChromeProcesses() {
     try {
+        // Comando condicional para Windows (taskkill) ou Linux/Mac (pkill)
         const command = process.platform === 'win32' ? 'taskkill /IM chrome.exe /F || taskkill /IM chromium.exe /F' : 'pkill -9 chrome || pkill -9 chromium';
         exec(command, (err) => {
             if (err) {
@@ -184,11 +141,12 @@ async function killChromeProcesses() {
 
 // Função para capturar o JSESSIONID
 async function getJSessionId() {
+    // Tenta matar processos pendentes antes de iniciar
     await killChromeProcesses();
 
     let browser = null;
     let page = null;
-    const maxAttempts = 3;
+    const maxAttempts = 3; // Número máximo de tentativas para lidar com erros de inicialização
     let attempt = 0;
 
     while (attempt < maxAttempts) {
@@ -199,8 +157,8 @@ async function getJSessionId() {
                 args: [
                     '--no-sandbox',
                     '--disable-gpu',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage'
+                    '--disable-setuid-sandbox', // Necessário em contêineres Linux
+                    '--disable-dev-shm-usage'   // Evita problemas de memória compartilhada
                 ]
             });
 
@@ -228,8 +186,10 @@ async function getJSessionId() {
 
     let sessionId = null;
     try {
+        // Lista de seletores para o botão "Entrar"
         const enterSelectors = [
-            'button.v3-btn:nth-child(1)',
+        
+            'button.v3-btn:nth-child(1)', // CSS: seletor específico
             'button.v3-btn',
             'xpath=/html/body/div[2]/div[1]/div/div[2]/header/div[2]/div/div/div/div/div[3]/div/div/div/div/div/button[1]',
             'button:has-text("Entrar")'
@@ -238,6 +198,7 @@ async function getJSessionId() {
         let enterButton = null;
         let currentUrl = null;
 
+        // Tenta cada URL inicial até encontrar o botão "Entrar"
         for (const url of INITIAL_URLS) {
             logger.info(`Acessando ${url}...`);
             const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 90000 });
@@ -253,14 +214,15 @@ async function getJSessionId() {
 
             logger.info(`Tentando localizar o botão 'Entrar' em ${url}...`);
             try {
-                enterButton = await waitForElement(page, enterSelectors, 10000);
+                enterButton = await waitForElement(page, enterSelectors, 10000); // Timeout de 10 segundos
                 currentUrl = url;
-                break;
+                break; // Botão encontrado, sair do loop
             } catch (error) {
                 logger.warn(`Botão 'Entrar' não encontrado em ${url}: ${error.message}`);
             }
         }
 
+        // Verifica se o botão foi encontrado em alguma das URLs
         if (!enterButton) {
             logger.error(`Botão 'Entrar' não encontrado em nenhuma das URLs: ${INITIAL_URLS.join(', ')}`);
             throw new Error("Botão 'Entrar' não encontrado.");
@@ -268,12 +230,14 @@ async function getJSessionId() {
 
         logger.info(`Botão 'Entrar' encontrado com sucesso em ${currentUrl}!`);
 
+        // Aceita os cookies
         logger.info("Tentando aceitar os cookies...");
         const cookieSelectors = [
-            '#btn-sim',
+            'div.customModal div.modal__body button.v3-btn.v3-btn-primary.v3-btn-lg.x-button',// Novo seletor adicionado
+            'xpath=/html/body/div[7]/div/div/div/div[3]/div/button[2]',
+            '#btn-sim', // CSS: seletor por ID do botão de cookies
             'xpath=/html/body/div[5]/div/button[2]',
-            'button:has-text("Aceitar")',
-            'div.customModal div.modal__body button.v3-btn.v3-btn-primary.v3-btn-lg.x-button'
+            'button:has-text("Aceitar")'
         ];
         const cookieButton = await waitForElement(page, cookieSelectors, 30000);
         await cookieButton.click();
@@ -281,12 +245,14 @@ async function getJSessionId() {
 
         await delay(3000);
 
+        // Clica no botão "Entrar"
         logger.info("Tentando clicar no botão 'Entrar'...");
         await enterButton.click();
         logger.info("Botão 'Entrar' clicado!");
 
         await delay(5000);
 
+        // Preenche o campo de nome de usuário com seletores alternativos
         logger.info("Tentando preencher o campo de usuário...");
         const usernameSelectors = [
             '#username',
@@ -297,11 +263,12 @@ async function getJSessionId() {
             'input[placeholder="E-mail"]'
         ];
         const usernameInput = await waitForElement(page, usernameSelectors, 30000);
-        await usernameInput.fill('renanokada2000@gmail.com');
+        await usernameInput.fill('renanokada2000@gmail.com'); // Substitua por uma variável de ambiente
         logger.info("Usuário preenchido!");
 
         await delay(2000);
 
+        // Trata pop-up de permissão de localização (mantido do código original)
         const permissionSelectors = [
             'text="Permitir desta vez"',
             'button:has-text("Permitir")'
@@ -316,6 +283,7 @@ async function getJSessionId() {
             logger.info("Pop-up de permissão não encontrado ou já foi tratado.");
         }
 
+        // Preenche o campo de senha com seletores alternativos
         logger.info("Tentando preencher o campo de senha...");
         const passwordSelectors = [
             '#password',
@@ -326,34 +294,37 @@ async function getJSessionId() {
             'input[placeholder="Senha"]'
         ];
         const passwordInput = await waitForElement(page, passwordSelectors, 30000);
-        await passwordInput.fill('Fabiodinha@2014');
+        await passwordInput.fill('Fabiodinha@2014'); // Substitua por uma variável de ambiente
         logger.info("Senha preenchida!");
 
         await delay(2000);
 
+        // Clica no botão de login com seletores alternativos
         logger.info("Tentando clicar no botão de login...");
         const loginSelectors = [
+            'button[type="submit"]',
+            'button:has-text("Entrar")',
             'xpath=/html/body/div[12]/div/div/div/div/div/form/button',
             'xpath=/html/body/div[11]/div/div/div/div/div/form/button',
-            'xpath=/html/body/div[13]/div/div/div/div/div/form/button',
-            'button[type="submit"]',
-            'button:has-text("Entrar")'
+            'xpath=/html/body/div[13]/div/div/div/div/div/form/button'
         ];
         const loginButton = await waitForElement(page, loginSelectors, 30000);
         await loginButton.click();
         logger.info("Botão de login clicado!");
 
-        await delay(5000);
+        await delay(10000);
 
+        // Acessa a página do jogo
         logger.info(`Acessando ${GAME_URL}...`);
         await page.goto(GAME_URL, { waitUntil: 'networkidle', timeout: 90000 });
         logger.info(`URL atual após navegação para jogo: ${page.url()}`);
 
+        // Captura o JSESSIONID usando requestfinished com flag de parada
         let sessionId = null;
         let isSessionIdCaptured = false;
 
         page.on('requestfinished', async (request) => {
-            if (isSessionIdCaptured) return;
+            if (isSessionIdCaptured) return; // Para o monitoramento após capturar
 
             const url = request.url();
             if ((url.toLowerCase().includes('games.pragmaticplaylive.net') || url.toLowerCase().includes('client.pragmaticplaylive')) && url.toLowerCase().includes('jsessionid')) {
@@ -367,10 +338,11 @@ async function getJSessionId() {
             }
         });
 
-        const maxWaitTime = 30000;
+        // Aguarda até que o JSESSIONID seja capturado ou um tempo razoável
+        const maxWaitTime = 30000; // 30 segundos como limite seguro (ajustável)
         const startTime = Date.now();
         while (!sessionId && (Date.now() - startTime) < maxWaitTime) {
-            await delay(100);
+            await delay(100); // Checa a cada 100ms
         }
 
         if (!sessionId) {
@@ -391,6 +363,7 @@ async function getJSessionId() {
             } catch (error) {
                 logger.warn(`Erro ao encerrar navegador: ${error.message}`);
             } finally {
+                // Garante que o processo seja encerrado
                 await killChromeProcesses();
             }
         }
@@ -445,20 +418,11 @@ function predictNext(sequence, patterns, minConfidence = 0.70, minOccurrences = 
     const confidence = probabilities[bestResult];
     const detectedSequence = patterns[sequenceKey].sequence;
 
+    // Para sequências maiores (8 e 9), exigimos confiança mínima de 85%
     const seqLength = sequence.length;
     const requiredConfidence = (seqLength >= 8) ? 0.85 : minConfidence;
 
     return confidence >= requiredConfidence ? [bestResult, confidence, total, detectedSequence] : [null, null, null, null];
-}
-
-// Função para converter resultado em emoji
-function resultToEmoji(result) {
-    switch (result.toUpperCase()) {
-        case 'BANKER': return '🔴';
-        case 'PLAYER': return '🔵';
-        case 'TIE': return '🟠';
-        default: return result;
-    }
 }
 
 // Funções para enviar mensagens ao Telegram
@@ -487,18 +451,6 @@ async function sendDailyReport(bot) {
     const totalBets = totalWins + stats.losses;
     const winRate = totalBets > 0 ? (totalWins / totalBets * 100).toFixed(2) : 0;
 
-    // Obtém as TOP 3 sequências das últimas 24 horas
-    const now = new Date();
-    const last24h = new Date(now - 24 * 60 * 60 * 1000);
-    const sequencesLast24h = Object.entries(topSequences)
-        .filter(([_, data]) => new Date(data.lastSeen) >= last24h)
-        .sort(([, a], [, b]) => (b.count || 0) - (a.count || 0))
-        .slice(0, 3)
-        .map(([seq, data]) => {
-            const emojiSeq = data.sequence.map(resultToEmoji).join(', ');
-            return `- ${emojiSeq} (Repetiu ${data.count} vez${data.count > 1 ? 'es' : ''})`;
-        });
-
     const report = `
 📊 **Relatório Diário - ${new Date().toLocaleDateString('pt-BR')}**
 - Vitórias (Aposta Inicial): ${stats.winsInitial}
@@ -507,17 +459,19 @@ async function sendDailyReport(bot) {
 - Perdas: ${stats.losses}
 - Total de Vitórias: ${totalWins}
 - Taxa de Acerto: ${winRate}%
-🔝 **TOP 3 Sequências nas últimas 24h:**
-${sequencesLast24h.length ? sequencesLast24h.join('\n') : '- Nenhuma sequência destacada.'}
 Curtiu os sinais? Vamos lucrar juntos 🔥🔥🚀🚀
     `;
 
     try {
+        // Envia o relatório e obtém o message_id
         const sentMessage = await bot.sendMessage(CHANNEL_ID, report);
         const messageId = sentMessage.message_id;
+
+        // Fixa a mensagem (sem notificação)
         await bot.pinChatMessage(CHANNEL_ID, messageId, { disable_notification: true });
         logger.info(`Relatório diário enviado e fixado. Message ID: ${messageId}`);
 
+        // Reseta os contadores após o envio do relatório, se o dia mudou
         if (currentDate !== lastResetDate) {
             stats = { winsInitial: 0, winsGale1: 0, winsGale2: 0, losses: 0 };
             lastResetDate = currentDate;
@@ -528,22 +482,18 @@ Curtiu os sinais? Vamos lucrar juntos 🔥🔥🚀🚀
     }
 }
 
-// Função para enviar o relatório semanal com horários vitoriosos
+// Função para enviar o relatório semanal
 async function sendWeeklyReport(bot) {
     const now = new Date();
     const startDate = new Date(weeklyStats.startDate);
     const daysSinceStart = Math.floor((now - startDate) / (1000 * 60 * 60 * 24));
 
+    // Se já passou uma semana (7 dias), envia o relatório e reseta os contadores semanais
     if (daysSinceStart >= 7) {
         const totalWins = weeklyStats.wins;
         const totalBets = totalWins + weeklyStats.losses;
         const winRate = totalBets > 0 ? (totalWins / totalBets * 100).toFixed(2) : 0;
         const initialWinRate = weeklyStats.initialWins > 0 ? (weeklyStats.initialWins / totalBets * 100).toFixed(2) : 0;
-
-        // Formata os horários vitoriosos
-        const winTimeReport = Object.entries(winTimes)
-            .map(([range, data]) => `${range} - ${data.winRate.toFixed(2)}% de taxa de vitória`)
-            .join('\n');
 
         const report = `
 📅 **Relatório Semanal - ${startDate.toLocaleDateString('pt-BR')} a ${now.toLocaleDateString('pt-BR')}**
@@ -551,8 +501,6 @@ async function sendWeeklyReport(bot) {
 - Total de Perdas: ${weeklyStats.losses}
 - Taxa de Acerto Geral: ${winRate}%
 - Taxa de Acerto (Apostas Iniciais): ${initialWinRate}%
-⏰ **Melhores Horários para Entrar:**
-${winTimeReport || '- Nenhum horário destacado.'}
 Curtiu os resultados? Vamos lucrar ainda mais na próxima semana! 🔥🔥🚀🚀
         `;
 
@@ -560,10 +508,7 @@ Curtiu os resultados? Vamos lucrar ainda mais na próxima semana! 🔥🔥🚀�
             await bot.sendMessage(CHANNEL_ID, report);
             logger.info('Relatório semanal enviado com sucesso.');
 
-            // Reseta os horários vitoriosos no domingo à noite
-            winTimes = {};
-            saveWinTimes(winTimes);
-
+            // Reseta os contadores semanais
             weeklyStats = { wins: 0, losses: 0, initialWins: 0, startDate: now.toISOString() };
             saveStats({ ...stats, lastResetDate, weeklyStats });
         } catch (error) {
@@ -575,116 +520,39 @@ Curtiu os resultados? Vamos lucrar ainda mais na próxima semana! 🔥🔥🚀�
 // Loop principal
 async function mainLoop() {
     const bot = new TelegramBot(TELEGRAM_TOKEN);
-    let sessionId = null; // JSESSIONID atual usado pelo loop principal
-    let newSessionId = null; // Novo JSESSIONID sendo obtido em segundo plano
+    let sessionId = null;
+    let lastSessionRefresh = 0;
     let history = [];
     let patterns = null;
     let galeLevel = 0;
     const maxGale = 2;
-    let lastGameId = null;
-    let isSystemOperational = false;
-    let isUpdatingJSessionId = false; // Flag para controlar a execução de updateJSessionId
-    let activeSignal = null; // Armazena o sinal ativo (cor, nível de Gale, gameId)
-
-    // Função para atualizar o JSESSIONID
-    const updateJSessionId = async () => {
-        if (isUpdatingJSessionId) {
-            logger.info("Atualização do JSESSIONID já em andamento. Aguardando conclusão...");
-            return;
-        }
-
-        isUpdatingJSessionId = true;
-        try {
-            logger.info("Iniciando atualização do JSESSIONID...");
-            const updatedSessionId = await getJSessionId();
-            if (updatedSessionId) {
-                newSessionId = updatedSessionId;
-                logger.info(`Novo JSESSIONID obtido com sucesso: ${newSessionId}`);
-            } else {
-                logger.warn("Falha ao obter novo JSESSIONID. Mantendo o atual.");
-            }
-        } catch (error) {
-            logger.error(`Erro ao atualizar JSESSIONID: ${error.message}`);
-        } finally {
-            isUpdatingJSessionId = false;
-        }
-    };
-
-    // Loop para atualizar o JSESSIONID a cada 5 minutos após o término do anterior
-    const updateJSessionIdLoop = async () => {
-        while (true) {
-            await updateJSessionId();
-            logger.info(`Aguardando ${JSESSIONID_UPDATE_INTERVAL / 1000} segundos antes da próxima atualização do JSESSIONID...`);
-            await delay(JSESSIONID_UPDATE_INTERVAL);
-        }
-    };
-
-    // Inicializa o JSESSIONID antes de começar o loop principal
-    sessionId = await getJSessionId();
-    if (!sessionId) {
-        logger.error("Não foi possível obter o JSESSIONID inicial. Encerrando...");
-        process.exit(1);
-    }
-
-    // Inicia o loop de atualização do JSESSIONID em segundo plano
-    updateJSessionIdLoop().catch(error => {
-        logger.error(`Erro fatal no loop de atualização do JSESSIONID: ${error.message}`);
-        process.exit(1);
-    });
+    let currentBet = null;
+    let lastGameId = null; // Armazena o último gameId processado
+    let lastSignal = null; // Armazena o último sinal enviado
+    let lastPredictedColor = null; // Armazena a última cor prevista
+    let galeMessageSent = false; // Flag para evitar duplicação de mensagens de gale
+    let isSystemOperational = false; // Flag para indicar se o sistema está enviando sinais
 
     // Agendamento do relatório diário às 18:30 (horário local)
     schedule.scheduleJob('30 18 * * *', () => {
         sendDailyReport(bot);
     });
 
-    // Agendamento do relatório semanal às 20:00 de domingo
-    schedule.scheduleJob('0 20 * * 0', () => {
+    // Agendamento do relatório semanal às 18:30 de segunda-feira
+    schedule.scheduleJob('30 18 * * 1', () => {
         sendWeeklyReport(bot);
     });
 
     while (true) {
         try {
-            // Se houver um novo JSESSIONID disponível, substitua o atual
-            if (newSessionId && newSessionId !== sessionId) {
-                logger.info(`Atualizando JSESSIONID: ${sessionId} -> ${newSessionId}`);
-                sessionId = newSessionId;
-                newSessionId = null; // Limpa o novo ID após usá-lo
-            }
-
-            // Se não houver JSESSIONID, aguarde até que um novo seja obtido
-            if (!sessionId) {
-                logger.warn("Nenhum JSESSIONID disponível. Aguardando nova tentativa de atualização...");
-                if (!isSystemInErrorState) {
-                    await sendSystemStatus(bot, "Alerta: Sistema analisando novas oportunidades. Por favor aguarde ...");
-                    isSystemInErrorState = true;
-                    isSystemOperational = false;
-                }
-                await delay(30000);
-                continue;
-            }
-
-            const gameData = await fetchGameHistory(sessionId);
-            if (!gameData || !gameData.megaSicBacGameStatisticHistory) {
-                logger.warn("Falha ao acessar histórico de jogos com o JSESSIONID atual.");
-                // Tenta usar o novo JSESSIONID, se disponível
-                if (newSessionId) {
-                    logger.info(`Tentando novo JSESSIONID: ${newSessionId}`);
-                    sessionId = newSessionId;
-                    newSessionId = null;
-                    const newGameData = await fetchGameHistory(sessionId);
-                    if (!newGameData || !newGameData.megaSicBacGameStatisticHistory) {
-                        logger.error("Falha ao acessar histórico mesmo com novo JSESSIONID.");
-                        if (!isSystemInErrorState) {
-                            await sendSystemStatus(bot, "Alerta: Sistema analisando novas oportunidades. Por favor aguarde ...");
-                            isSystemInErrorState = true;
-                            isSystemOperational = false;
-                        }
-                        await delay(30000);
-                        continue;
-                    }
-                    gameData = newGameData;
-                } else {
-                    logger.warn("Nenhum novo JSESSIONID disponível. Aguardando próxima atualização...");
+            const currentTime = performance.now();
+            // Só atualiza o JSESSIONID se ainda não existir ou se o acesso ao histórico falhar
+            if (!sessionId || (currentTime - lastSessionRefresh >= SESSION_REFRESH_INTERVAL)) {
+                logger.info("Obtendo ou atualizando JSESSIONID...");
+                sessionId = await getJSessionId();
+                lastSessionRefresh = currentTime;
+                if (!sessionId) {
+                    logger.error("Falha ao obter JSESSIONID.");
                     if (!isSystemInErrorState) {
                         await sendSystemStatus(bot, "Alerta: Sistema analisando novas oportunidades. Por favor aguarde ...");
                         isSystemInErrorState = true;
@@ -693,6 +561,35 @@ async function mainLoop() {
                     await delay(30000);
                     continue;
                 }
+            }
+
+            const gameData = await fetchGameHistory(sessionId);
+            if (!gameData || !gameData.megaSicBacGameStatisticHistory) {
+                logger.warn("Falha ao acessar histórico de jogos com o JSESSIONID atual. Tentando renovar...");
+                sessionId = await getJSessionId(); // Tenta renovar o JSESSIONID
+                if (!sessionId) {
+                    logger.error("Falha ao renovar JSESSIONID.");
+                    if (!isSystemInErrorState) {
+                        await sendSystemStatus(bot, "Alerta: Sistema analisando novas oportunidades. Por favor aguarde ...");
+                        isSystemInErrorState = true;
+                        isSystemOperational = false;
+                    }
+                    await delay(30000);
+                    continue;
+                }
+                // Tenta novamente com o novo sessionId
+                const newGameData = await fetchGameHistory(sessionId);
+                if (!newGameData || !newGameData.megaSicBacGameStatisticHistory) {
+                    logger.error("Falha ao acessar histórico mesmo com novo JSESSIONID.");
+                    if (!isSystemInErrorState) {
+                        await sendSystemStatus(bot, "Alerta: Sistema analisando novas oportunidades. Por favor aguarde ...");
+                        isSystemInErrorState = true;
+                        isSystemOperational = false;
+                    }
+                    await delay(30000);
+                    continue;
+                }
+                gameData = newGameData; // Atualiza gameData com o sucesso
             }
 
             const newHistory = gameData.megaSicBacGameStatisticHistory;
@@ -704,146 +601,107 @@ async function mainLoop() {
 
             const latestGame = newHistory[0];
             const latestGameId = latestGame.gameId;
-            const currentTime = new Date();
 
             if (lastGameId === null) {
+                // Primeira iteração: inicializa o último gameId
                 lastGameId = latestGameId;
                 history = newHistory;
                 patterns = buildPatterns(history);
             } else if (latestGameId !== lastGameId) {
+                // Nova jogada detectada
                 logger.info(`Nova jogada detectada: gameId ${latestGameId}`);
+                galeMessageSent = false; // Reseta a flag no início de uma nova jogada
+
+                // Verifica o resultado da aposta anterior (se houver)
+                if (currentBet) {
+                    const result = latestGame.result;
+                    if (result === currentBet || result === "TIE") {
+                        if (result === "TIE") {
+                            await sendSignalDefault(bot, "✅ GANHAMOS em TIE!");
+                        } else {
+                            await sendSignalDefault(bot, `✅ GANHAMOS em ${currentBet}!`);
+                        }
+                        if (galeLevel === 0) {
+                            stats.winsInitial++;
+                            weeklyStats.initialWins++;
+                        } else if (galeLevel === 1) stats.winsGale1++;
+                        else if (galeLevel === 2) stats.winsGale2++;
+                        weeklyStats.wins++;
+                        logger.info(`Vitória registrada: Initial=${stats.winsInitial}, Gale1=${stats.winsGale1}, Gale2=${stats.winsGale2}`);
+                        saveStats({ ...stats, lastResetDate, weeklyStats }); // Salva os contadores após cada vitória
+                        galeLevel = 0;
+                        currentBet = null;
+                        lastSignal = null;
+                    } else {
+                        galeLevel++;
+                        if (galeLevel > maxGale) {
+                            await sendSignalDefault(bot, `❌ PERDEMOS após ${maxGale} gales. Padrão quebrado, segue o game e aguardando novo padrão...`);
+                            stats.losses++;
+                            weeklyStats.losses++;
+                            logger.info(`Perda registrada: Losses=${stats.losses}`);
+                            saveStats({ ...stats, lastResetDate, weeklyStats }); // Salva os contadores após cada perda
+                            galeLevel = 0;
+                            currentBet = null;
+                            lastSignal = null;
+                        }
+                        // Não envia mensagem de gale aqui; será tratado no loop de padrões
+                    }
+                }
 
                 // Atualiza o histórico e os padrões
                 history = newHistory;
                 patterns = buildPatterns(history);
                 lastGameId = latestGameId;
 
-                // Verifica o resultado do sinal ativo, se houver
-                if (activeSignal) {
-                    const result = latestGame.result;
-                    const timeSlot = `${currentTime.getHours()}:${currentTime.getMinutes().toString().padStart(2, '0')}`;
-                    const timeRange = `${Math.floor(currentTime.getHours())}:${Math.floor(currentTime.getMinutes() / 30) * 30}:00 - ${Math.floor(currentTime.getHours())}:${Math.floor(currentTime.getMinutes() / 30) * 30 + 30}:00`;
-                    if (result === activeSignal.bet || result === "TIE") {
-                        // Vitória ou TIE
-                        if (result === "TIE") {
-                            await sendSignalDefault(bot, "✅ GANHAMOS em 🟠 TIE!");
-                        } else {
-                            await sendSignalDefault(bot, `✅ GANHAMOS em ${resultToEmoji(activeSignal.bet)} ${activeSignal.bet}!`);
-                        }
-                        if (galeLevel === 0) {
-                            stats.winsInitial++;
-                            weeklyStats.initialWins++;
-                            // Atualiza horários vitoriosos
-                            if (!winTimes[timeRange]) winTimes[timeRange] = { wins: 0, total: 0, winRate: 0, lastSeen: currentTime.toISOString() };
-                            winTimes[timeRange].wins++;
-                            winTimes[timeRange].total++;
-                            winTimes[timeRange].winRate = (winTimes[timeRange].wins / winTimes[timeRange].total) * 100;
-                            winTimes[timeRange].lastSeen = currentTime.toISOString();
-                        } else if (galeLevel === 1) {
-                            stats.winsGale1++;
-                            weeklyStats.wins++;
-                            if (!winTimes[timeRange]) winTimes[timeRange] = { wins: 0, total: 0, winRate: 0, lastSeen: currentTime.toISOString() };
-                            winTimes[timeRange].wins++;
-                            winTimes[timeRange].total++;
-                            winTimes[timeRange].winRate = (winTimes[timeRange].wins / winTimes[timeRange].total) * 100;
-                            winTimes[timeRange].lastSeen = currentTime.toISOString();
+                // Verifica padrões para diferentes tamanhos de sequência
+                let newSignalDetected = false;
+                for (let seqLength = 4; seqLength <= 9; seqLength++) {
+                    if (history.length < seqLength) continue;
+
+                    // Inverte a sequência para que seja do mais antigo ao mais recente
+                    const currentSequence = history.slice(0, seqLength).reverse().map(game => game.result);
+                    const [predictedColor, confidence, occurrences, detectedSequence] = predictNext(currentSequence, patterns);
+
+                    if (predictedColor && galeLevel <= maxGale) {
+                        currentBet = predictedColor;
+                        lastPredictedColor = predictedColor;
+                        // Ajuste para incluir "Gale 1" e "Gale 2" com proteção no TIE
+                        let signal;
+                        if (galeLevel === 1) {
+                            signal = `🚨 Padrão detectado: ${detectedSequence.join(', ')}\nAPOSTE ${currentBet} (Gale 1 com proteção no TIE)\nConfiança: ${(confidence * 100).toFixed(2)}%`;
                         } else if (galeLevel === 2) {
-                            stats.winsGale2++;
-                            weeklyStats.wins++;
-                            if (!winTimes[timeRange]) winTimes[timeRange] = { wins: 0, total: 0, winRate: 0, lastSeen: currentTime.toISOString() };
-                            winTimes[timeRange].wins++;
-                            winTimes[timeRange].total++;
-                            winTimes[timeRange].winRate = (winTimes[timeRange].wins / winTimes[timeRange].total) * 100;
-                            winTimes[timeRange].lastSeen = currentTime.toISOString();
-                        }
-                        weeklyStats.wins++;
-                        logger.info(`Vitória registrada: Initial=${stats.winsInitial}, Gale1=${stats.winsGale1}, Gale2=${stats.winsGale2}`);
-                        saveStats({ ...stats, lastResetDate, weeklyStats });
-                        saveWinTimes(winTimes);
-                        galeLevel = 0;
-                        activeSignal = null;
-                    } else {
-                        // Perda (Red)
-                        galeLevel++;
-                        if (!winTimes[timeRange]) winTimes[timeRange] = { wins: 0, total: 0, winRate: 0, lastSeen: currentTime.toISOString() };
-                        winTimes[timeRange].total++;
-                        winTimes[timeRange].winRate = (winTimes[timeRange].wins / winTimes[timeRange].total) * 100;
-                        winTimes[timeRange].lastSeen = currentTime.toISOString();
-                        saveWinTimes(winTimes);
-                        if (galeLevel > maxGale) {
-                            await sendSignalDefault(bot, `❌ PERDEMOS após ${maxGale} gales. Padrão quebrado, segue o game e aguardando novo padrão...`);
-                            stats.losses++;
-                            weeklyStats.losses++;
-                            logger.info(`Perda registrada: Losses=${stats.losses}`);
-                            saveStats({ ...stats, lastResetDate, weeklyStats });
-                            galeLevel = 0;
-                            activeSignal = null;
+                            signal = `🚨 Padrão detectado: ${detectedSequence.join(', ')}\nAPOSTE ${currentBet} (Gale 2 com proteção no TIE)\nConfiança: ${(confidence * 100).toFixed(2)}%`;
                         } else {
-                            // Não envia sinal de Gale imediatamente; aguarda um novo padrão
-                            activeSignal = null; // Limpa o sinal ativo para aguardar um novo padrão
+                            signal = `🚨 Padrão detectado: ${detectedSequence.join(', ')}\nAPOSTE ${currentBet} (Aposta Inicial com proteção no TIE)\nConfiança: ${(confidence * 100).toFixed(2)}%`;
                         }
+
+                        await sendSignalDefault(bot, signal);
+                        lastSignal = signal;
+                        newSignalDetected = true;
+                        galeMessageSent = true; // Marca que um sinal foi enviado
+                        if (!isSystemOperational) {
+                            // await sendSystemStatus(bot, "Sistema voltou ao normal. Sinais retomados.");
+                            isSystemInErrorState = false;
+                            isSystemOperational = true;
+                        }
+                        break;
                     }
                 }
 
-                // Armazena a sequência atual para análise de top sequences
-                const currentSequence = history.slice(0, 9).reverse().map(game => game.result);
-                const sequenceKey = currentSequence.join(',');
-                if (!topSequences[sequenceKey]) {
-                    topSequences[sequenceKey] = {
-                        sequence: currentSequence,
-                        count: 1,
-                        lastSeen: currentTime.toISOString()
-                    };
-                } else {
-                    topSequences[sequenceKey].count++;
-                    topSequences[sequenceKey].lastSeen = currentTime.toISOString();
-                }
-                saveTopSequences(topSequences);
-
-                // Se não houver sinal ativo, procura um novo padrão
-                if (!activeSignal) {
-                    let newSignalDetected = false;
-                    for (let seqLength = 4; seqLength <= 9; seqLength++) {
-                        if (history.length < seqLength) continue;
-
-                        const currentSequence = history.slice(0, seqLength).reverse().map(game => game.result);
-                        const [predictedColor, confidence, occurrences, detectedSequence] = predictNext(currentSequence, patterns);
-
-                        if (predictedColor && galeLevel <= maxGale) {
-                            const emojiSequence = detectedSequence.map(resultToEmoji).join(', ');
-                            let signal;
-                            if (galeLevel === 1) {
-                                signal = `🚨 Padrão detectado: ${emojiSequence}\nAPOSTE ${resultToEmoji(predictedColor)} ${predictedColor} (Gale 1 com proteção no TIE)\nConfiança: ${(confidence * 100).toFixed(2)}%`;
-                            } else if (galeLevel === 2) {
-                                signal = `🚨 Padrão detectado: ${emojiSequence}\nAPOSTE ${resultToEmoji(predictedColor)} ${predictedColor} (Gale 2 com proteção no TIE)\nConfiança: ${(confidence * 100).toFixed(2)}%`;
-                            } else {
-                                signal = `🚨 Padrão detectado: ${emojiSequence}\nAPOSTE ${resultToEmoji(predictedColor)} ${predictedColor} (Aposta Inicial com proteção no TIE)\nConfiança: ${(confidence * 100).toFixed(2)}%`;
-                            }
-
-                            if (confidence > 0.90) {
-                                signal = `🌟 OPORTUNIDADE EXCEPCIONAL! ${signal}\nConfiança acima de 90%! Aproveite esta chance rara!`;
-                            }
-
-                            await sendSignalDefault(bot, signal);
-                            activeSignal = {
-                                bet: predictedColor,
-                                galeLevel: galeLevel,
-                                gameId: latestGameId
-                            };
-                            newSignalDetected = true;
-                            if (!isSystemOperational) {
-                                isSystemInErrorState = false;
-                                isSystemOperational = true;
-                            }
-                            break;
-                        }
-                    }
-
-                    if (!newSignalDetected) {
-                        logger.info("Nenhum padrão detectado. Aguardando próximo jogo...");
+                // Se não houver novo sinal detectado, mas ainda estamos em um ciclo de Gale
+                if (!newSignalDetected && galeLevel > 0 && !galeMessageSent) {
+                    const galeMessage = `Realizar Gale ${galeLevel} em ${currentBet}`;
+                    await sendSignalDefault(bot, galeMessage);
+                    logger.info(`Enviada mensagem de Gale (sem novo padrão): ${galeMessage}`);
+                    galeMessageSent = true;
+                    if (!isSystemOperational) {
+                        // await sendSystemStatus(bot, "Sistema voltou ao normal. Sinais retomados.");
+                        isSystemInErrorState = false;
+                        isSystemOperational = true;
                     }
                 }
             } else {
+                // Nenhuma nova jogada; aguarda antes de verificar novamente
                 logger.info(`Nenhuma nova jogada. Último gameId: ${lastGameId}`);
                 await delay(5000);
             }
@@ -851,6 +709,7 @@ async function mainLoop() {
             logger.error(`Erro no sistema: ${error.message}. Tentando novamente em 30 segundos...`);
             logger.error(`Stack trace: ${error.stack}`);
             if (!isSystemInErrorState) {
+                // await sendSystemStatus(bot, "Alerta: Sistema analisando novas oportunidades. Por favor aguarde ...");
                 isSystemInErrorState = true;
                 isSystemOperational = false;
             }
@@ -871,7 +730,7 @@ async function mainLoop() {
     }
 })();
 
-// Tratamento de interrupção
+// Tratamento de interrupção (equivalente ao KeyboardInterrupt do Python)
 process.on('SIGINT', async () => {
     logger.info("Script interrompido pelo usuário. Encerrando processos pendentes...");
     await killChromeProcesses();
