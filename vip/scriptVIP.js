@@ -62,7 +62,7 @@ function loadStats() {
     };
 }
 
-//Função para salvar os contadores no arquivo
+// Função para salvar os contadores no arquivo
 function saveStats(stats) {
     try {
         fs.writeFileSync('stats.json', JSON.stringify(stats, null, 2));
@@ -1010,13 +1010,110 @@ async function mainLoop() {
                             galeLevel = 0;
                             activeSignal = null;
                         } else {
-                            // Aguarda 2 segundos e verifica se um novo sinal foi detectado
-                            await delay(2000);
+                            // Limpa o sinal ativo para permitir a busca por um novo padrão
+                            activeSignal = null;
+
+                            // Aguarda até que uma nova jogada seja detectada (gameId diferente)
+                            let newGameIdDetected = false;
+                            let newGameId = latestGameId;
+                            while (!newGameIdDetected) {
+                                const newGameData = await fetchGameHistory(sessionId);
+                                if (!newGameData || !newGameData.megaSicBacGameStatisticHistory) {
+                                    logger.warn("Falha ao acessar histórico de jogos durante espera por nova jogada.");
+                                    await delay(5000);
+                                    continue;
+                                }
+                                const newLatestGame = newGameData.megaSicBacGameStatisticHistory[0];
+                                newGameId = newLatestGame.gameId;
+                                if (newGameId !== latestGameId) {
+                                    newGameIdDetected = true;
+                                    history = newGameData.megaSicBacGameStatisticHistory;
+                                    colorPatterns = buildColorPatterns(history);
+                                    dicePatterns = buildDicePatterns(history);
+                                    eventPatterns = buildEventPatterns(history);
+                                    lastGameId = newGameId;
+                                } else {
+                                    logger.info(`Aguardando nova jogada... Último gameId: ${latestGameId}`);
+                                    await delay(5000);
+                                }
+
+                                // Durante a espera, verifica se um novo sinal foi detectado
+                                if (!activeSignal) {
+                                    let newSignalDetectedDuringWait = false;
+                                    let bestPrediction = null;
+                                    let bestConfidence = 0;
+                                    let bestPatternDescription = '';
+
+                                    // 1. Padrão de cores
+                                    for (let seqLength = 4; seqLength <= 9; seqLength++) {
+                                        if (history.length < seqLength) continue;
+
+                                        const currentSequence = history.slice(0, seqLength).reverse().map(game => game.result);
+                                        const [predictedColor, confidence, occurrences, detectedSequence] = predictNextColor(currentSequence, colorPatterns);
+
+                                        if (predictedColor && confidence > bestConfidence && galeLevel <= maxGale) {
+                                            bestPrediction = predictedColor;
+                                            bestConfidence = confidence;
+                                            bestPatternDescription = `Padrão de Cores: ${detectedSequence.map(resultToEmoji).join(', ')}`;
+                                        }
+                                    }
+
+                                    // 2. Padrão de dados
+                                    if (history.length >= 4) {
+                                        const currentDiceSequence = history.slice(0, 4).reverse().map(game => [game.p1, game.p2, game.b1, game.b2].join(','));
+                                        const [predictedDiceColor, diceConfidence, diceOccurrences, diceSequence] = predictNextDice(currentDiceSequence, dicePatterns);
+                                        if (predictedDiceColor && diceConfidence > bestConfidence && galeLevel <= maxGale) {
+                                            bestPrediction = predictedDiceColor;
+                                            bestConfidence = diceConfidence;
+                                            bestPatternDescription = `Padrão de Dados: ${diceSequence.join('; ')}`;
+                                        }
+                                    }
+
+                                    // 3. Padrão de eventos
+                                    const [eventColor, eventConfidence, eventOccurrences, eventPatternType] = predictNextEvent(history, eventPatterns);
+                                    if (eventColor && eventConfidence > bestConfidence && galeLevel <= maxGale) {
+                                        bestPrediction = eventColor;
+                                        bestConfidence = eventConfidence;
+                                        bestPatternDescription = eventPatternType;
+                                    }
+
+                                    // Se um novo sinal foi detectado durante a espera, envia o sinal e interrompe a espera
+                                    if (bestPrediction) {
+                                        let signal;
+                                        if (galeLevel === 1) {
+                                            signal = `🚨 ${bestPatternDescription}\nAPOSTE ${resultToEmoji(bestPrediction)} ${bestPrediction} (Gale 1 com proteção no TIE)\nConfiança: ${(bestConfidence * 100).toFixed(2)}%`;
+                                        } else {
+                                            signal = `🚨 ${bestPatternDescription}\nAPOSTE ${resultToEmoji(bestPrediction)} ${bestPrediction} (Aposta Inicial com proteção no TIE)\nConfiança: ${(bestConfidence * 100).toFixed(2)}%`;
+                                        }
+
+                                        if (bestConfidence > 0.90) {
+                                            signal = `🌟 OPORTUNIDADE COM CONFIANÇA ALTA!\n ${signal}`;
+                                        }
+
+                                        await sendSignalDefault(bot, signal);
+                                        activeSignal = {
+                                            bet: bestPrediction,
+                                            galeLevel: galeLevel,
+                                            gameId: newGameId
+                                        };
+                                        newSignalDetectedDuringWait = true;
+                                        if (!isSystemOperational) {
+                                            isSystemInErrorState = false;
+                                            isSystemOperational = true;
+                                        }
+                                    }
+
+                                    if (newSignalDetectedDuringWait) {
+                                        break; // Sai do loop de espera se um novo sinal foi enviado
+                                    }
+                                }
+                            }
+
+                            // Após detectar uma nova jogada, verifica se um novo sinal foi enviado
                             if (!activeSignal) {
                                 const nextGale = galeLevel === 1 ? "Gale 1" : "Gale 2";
                                 await sendSignalDefault(bot, `⚠️ Sistema analisando nova oportunidade para ${nextGale}...`);
                             }
-                            activeSignal = null; // Limpa o sinal ativo para aguardar um novo padrão
                         }
                     }
                 }
@@ -1086,7 +1183,7 @@ async function mainLoop() {
                         }
 
                         if (bestConfidence > 0.90) {
-                            signal = `🌟 OPORTUNIDADE COM CONFIANÇA ALTA! ${signal}`;
+                            signal = `🌟 OPORTUNIDADE EXCEPCIONAL! ${signal}\nConfiança acima de 90%! Aproveite esta chance rara!`;
                         }
 
                         await sendSignalDefault(bot, signal);
