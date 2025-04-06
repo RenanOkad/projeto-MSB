@@ -331,11 +331,11 @@ async function getJSessionId() {
 
         logger.info("Tentando clicar no botão de login...");
         const loginSelectors = [
+            'button[type="submit"]',
+            'button:has-text("Entrar")',
             'xpath=/html/body/div[12]/div/div/div/div/div/form/button',
             'xpath=/html/body/div[11]/div/div/div/div/div/form/button',
-            'xpath=/html/body/div[13]/div/div/div/div/div/form/button',
-            'button[type="submit"]',
-            'button:has-text("Entrar")'
+            'xpath=/html/body/div[13]/div/div/div/div/div/form/button'
         ];
         const loginButton = await waitForElement(page, loginSelectors, 30000);
         await loginButton.click();
@@ -1183,7 +1183,7 @@ async function mainLoop() {
                         }
 
                         if (bestConfidence > 0.90) {
-                            signal = `🌟 OPORTUNIDADE EXCEPCIONAL! ${signal}\nConfiança acima de 90%! Aproveite esta chance rara!`;
+                            signal = `🌟 OPORTUNIDADE COM CONFIANÇA ALTA!\n ${signal}`;
                         }
 
                         await sendSignalDefault(bot, signal);

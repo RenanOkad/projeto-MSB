@@ -1,0 +1,197 @@
+{
+  "BANKER,TIE,PLAYER,PLAYER,PLAYER,BANKER,PLAYER,BANKER,BANKER": {
+    "sequence": [
+      "BANKER",
+      "TIE",
+      "PLAYER",
+      "PLAYER",
+      "PLAYER",
+      "BANKER",
+      "PLAYER",
+      "BANKER",
+      "BANKER"
+    ],
+    "count": 1,
+    "lastSeen": "2025-04-06T00:26:51.535Z"
+  },
+  "TIE,PLAYER,PLAYER,PLAYER,BANKER,PLAYER,BANKER,BANKER,BANKER": {
+    "sequence": [
+      "TIE",
+      "PLAYER",
+      "PLAYER",
+      "PLAYER",
+      "BANKER",
+      "PLAYER",
+      "BANKER",
+      "BANKER",
+      "BANKER"
+    ],
+    "count": 1,
+    "lastSeen": "2025-04-06T00:27:23.258Z"
+  },
+  "PLAYER,PLAYER,PLAYER,BANKER,PLAYER,BANKER,BANKER,BANKER,PLAYER": {
+    "sequence": [
+      "PLAYER",
+      "PLAYER",
+      "PLAYER",
+      "BANKER",
+      "PLAYER",
+      "BANKER",
+      "BANKER",
+      "BANKER",
+      "PLAYER"
+    ],
+    "count": 1,
+    "lastSeen": "2025-04-06T00:27:50.447Z"
+  },
+  "PLAYER,PLAYER,BANKER,PLAYER,BANKER,BANKER,BANKER,PLAYER,PLAYER": {
+    "sequence": [
+      "PLAYER",
+      "PLAYER",
+      "BANKER",
+      "PLAYER",
+      "BANKER",
+      "BANKER",
+      "BANKER",
+      "PLAYER",
+      "PLAYER"
+    ],
+    "count": 1,
+    "lastSeen": "2025-04-06T00:28:22.471Z"
+  },
+  "PLAYER,BANKER,PLAYER,BANKER,BANKER,BANKER,PLAYER,PLAYER,PLAYER": {
+    "sequence": [
+      "PLAYER",
+      "BANKER",
+      "PLAYER",
+      "BANKER",
+      "BANKER",
+      "BANKER",
+      "PLAYER",
+      "PLAYER",
+      "PLAYER"
+    ],
+    "count": 1,
+    "lastSeen": "2025-04-06T00:28:49.554Z"
+  },
+  "BANKER,PLAYER,BANKER,BANKER,BANKER,PLAYER,PLAYER,PLAYER,BANKER": {
+    "sequence": [
+      "BANKER",
+      "PLAYER",
+      "BANKER",
+      "BANKER",
+      "BANKER",
+      "PLAYER",
+      "PLAYER",
+      "PLAYER",
+      "BANKER"
+    ],
+    "count": 1,
+    "lastSeen": "2025-04-06T00:29:16.679Z"
+  },
+  "PLAYER,BANKER,BANKER,BANKER,PLAYER,PLAYER,PLAYER,BANKER,PLAYER": {
+    "sequence": [
+      "PLAYER",
+      "BANKER",
+      "BANKER",
+      "BANKER",
+      "PLAYER",
+      "PLAYER",
+      "PLAYER",
+      "BANKER",
+      "PLAYER"
+    ],
+    "count": 1,
+    "lastSeen": "2025-04-06T00:29:48.669Z"
+  },
+  "BANKER,BANKER,BANKER,PLAYER,PLAYER,PLAYER,BANKER,PLAYER,PLAYER": {
+    "sequence": [
+      "BANKER",
+      "BANKER",
+      "BANKER",
+      "PLAYER",
+      "PLAYER",
+      "PLAYER",
+      "BANKER",
+      "PLAYER",
+      "PLAYER"
+    ],
+    "count": 1,
+    "lastSeen": "2025-04-06T00:30:20.485Z"
+  },
+  "BANKER,BANKER,PLAYER,PLAYER,PLAYER,BANKER,PLAYER,PLAYER,BANKER": {
+    "sequence": [
+      "BANKER",
+      "BANKER",
+      "PLAYER",
+      "PLAYER",
+      "PLAYER",
+      "BANKER",
+      "PLAYER",
+      "PLAYER",
+      "BANKER"
+    ],
+    "count": 1,
+    "lastSeen": "2025-04-06T00:30:46.947Z"
+  },
+  "BANKER,PLAYER,PLAYER,PLAYER,BANKER,PLAYER,PLAYER,BANKER,PLAYER": {
+    "sequence": [
+      "BANKER",
+      "PLAYER",
+      "PLAYER",
+      "PLAYER",
+      "BANKER",
+      "PLAYER",
+      "PLAYER",
+      "BANKER",
+      "PLAYER"
+    ],
+    "count": 1,
+    "lastSeen": "2025-04-06T00:31:18.808Z"
+  },
+  "PLAYER,PLAYER,PLAYER,BANKER,PLAYER,PLAYER,BANKER,PLAYER,TIE": {
+    "sequence": [
+      "PLAYER",
+      "PLAYER",
+      "PLAYER",
+      "BANKER",
+      "PLAYER",
+      "PLAYER",
+      "BANKER",
+      "PLAYER",
+      "TIE"
+    ],
+    "count": 1,
+    "lastSeen": "2025-04-06T00:31:50.808Z"
+  },
+  "PLAYER,PLAYER,BANKER,PLAYER,PLAYER,BANKER,PLAYER,TIE,TIE": {
+    "sequence": [
+      "PLAYER",
+      "PLAYER",
+      "BANKER",
+      "PLAYER",
+      "PLAYER",
+      "BANKER",
+      "PLAYER",
+      "TIE",
+      "TIE"
+    ],
+    "count": 1,
+    "lastSeen": "2025-04-06T00:32:17.264Z"
+  },
+  "PLAYER,BANKER,PLAYER,PLAYER,BANKER,PLAYER,TIE,TIE,PLAYER": {
+    "sequence": [
+      "PLAYER",
+      "BANKER",
+      "PLAYER",
+      "PLAYER",
+      "BANKER",
+      "PLAYER",
+      "TIE",
+      "TIE",
+      "PLAYER"
+    ],
+    "count": 1,
+    "lastSeen": "2025-04-06T00:32:49.173Z"
+  }
+}
