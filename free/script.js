@@ -171,7 +171,7 @@ async function getJSessionId() {
         try {
             logger.info(`Tentativa ${attempt + 1}/${maxAttempts} para inicializar o navegador...`);
             browser = await chromium.launch({
-                headless: true,
+                headless: false,
                 args: [
                     '--no-sandbox',
                     '--disable-gpu',
@@ -244,17 +244,17 @@ async function getJSessionId() {
 
         logger.info(`Botão 'Entrar' encontrado com sucesso em ${currentUrl}!`);
 
-        logger.info("Tentando aceitar os cookies...");
-        const cookieSelectors = [
-            'div.customModal div.modal__body button.v3-btn.v3-btn-primary.v3-btn-lg.x-button',
-            'xpath=/html/body/div[7]/div/div/div/div[3]/div/button[2]',
-            '#btn-sim',
-            'xpath=/html/body/div[5]/div/button[2]',
-            'button:has-text("Aceitar")'
-        ];
-        const cookieButton = await waitForElement(page, cookieSelectors, 30000);
-        await cookieButton.click();
-        logger.info("Cookies aceitos!");
+        // logger.info("Tentando aceitar os cookies...");
+        // const cookieSelectors = [
+        //     'div.customModal div.modal__body button.v3-btn.v3-btn-primary.v3-btn-lg.x-button',
+        //     'xpath=/html/body/div[7]/div/div/div/div[3]/div/button[2]',
+        //     '#btn-sim',
+        //     'xpath=/html/body/div[5]/div/button[2]',
+        //     'button:has-text("Aceitar")'
+        // ];
+        // const cookieButton = await waitForElement(page, cookieSelectors, 30000);
+        // await cookieButton.click();
+        // logger.info("Cookies aceitos!");
 
         await delay(3000);
 
